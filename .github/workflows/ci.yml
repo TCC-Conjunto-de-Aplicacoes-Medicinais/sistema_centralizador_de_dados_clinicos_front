@@ -7,8 +7,34 @@ on:
     branches: [ "main", "master" ]
 
 jobs:
+  security-scan:
+    name: Scan de Segurança
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for committed .env files
+        run: |
+          ENV_FILES=$(find . -name ".env" -o -name ".env.*" -not -name ".env.example" -type f)
+          if [ ! -z "$ENV_FILES" ]; then
+            echo "❌ ERROR: Sensitive .env files were found in the repository!"
+            echo "$ENV_FILES"
+            exit 1
+          else
+            echo "✅ No sensitive .env files found."
+          fi
+
+      - name: Scan for API Keys, Tokens and Secrets (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-and-test:
     name: Build & Test
+    needs: security-scan
     runs-on: ubuntu-latest
     
     steps:
