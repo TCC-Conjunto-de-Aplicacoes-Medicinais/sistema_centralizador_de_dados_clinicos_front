@@ -17,6 +17,29 @@ export default function MediatorPage() {
   // Theme State (default to light / white mode)
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
+  const [backendUrl, setBackendUrl] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("centralizador_backend_url") || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+    }
+    return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+  });
+
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("centralizador_token") || null;
+    }
+    return null;
+  });
+
+  const [showApiConfig, setShowApiConfig] = useState(false);
+
+  // Sync backendUrl to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("centralizador_backend_url", backendUrl);
+    }
+  }, [backendUrl]);
+
   // Sync theme with DOM element
   useEffect(() => {
     if (theme === "dark") {
@@ -25,6 +48,18 @@ export default function MediatorPage() {
       document.documentElement.classList.remove("dark");
     }
   }, [theme]);
+
+  // Restore Session on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedUser = localStorage.getItem("centralizador_user");
+      const savedClinic = localStorage.getItem("centralizador_clinic");
+      if (savedUser && savedClinic && token) {
+        setCurrentUser(JSON.parse(savedUser));
+        setCurrentClinic(JSON.parse(savedClinic));
+      }
+    }
+  }, [token]);
 
   // Auth State
   const [clinicCode, setClinicCode] = useState("");
@@ -70,31 +105,57 @@ export default function MediatorPage() {
     : [];
 
   // Login handler
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
 
-    const user = mockClinicUsers.find(
-      (u) => u.clinicId.toUpperCase() === clinicCode.toUpperCase() && u.email.toLowerCase() === email.toLowerCase()
-    );
+    try {
+      const res = await fetch(`${backendUrl}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clinicCode, email, password }),
+      });
 
-    if (!user || user.passwordHash !== password) {
-      setAuthError("Credenciais inválidas. Verifique o código da clínica, e-mail e senha.");
-      return;
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Credenciais inválidas.");
+      }
+
+      const data = await res.json();
+
+      const user: ClinicUser = {
+        clinicId: clinicCode,
+        email: email,
+        passwordHash: "",
+        name: data.user.name,
+        role: data.user.role,
+      };
+
+      const clinic: Clinic = {
+        id: clinicCode,
+        name: clinicCode === "CLI-1001" ? "Clínica Vida Saudável" : 
+              clinicCode === "CLI-2002" ? "Hospital Metropolitano São Lucas" : 
+              clinicCode === "CLI-3003" ? "CardioCentro Integrado" : 
+              clinicCode === "CLI-4004" ? "Laboratório Santa Cecília" : "Clínica Requisitante",
+        type: (clinicCode === "CLI-3003" || clinicCode === "CLI-4004") ? "partner" : "internal",
+      };
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem("centralizador_token", data.token);
+        localStorage.setItem("centralizador_user", JSON.stringify(user));
+        localStorage.setItem("centralizador_clinic", JSON.stringify(clinic));
+      }
+
+      setToken(data.token);
+      setCurrentUser(user);
+      setCurrentClinic(clinic);
+      
+      // Set default requester details for Break the Glass
+      setRequesterName(user.name);
+      setRequesterRole(user.role);
+    } catch (err: any) {
+      setAuthError(err.message || "Erro ao conectar com o servidor.");
     }
-
-    const clinic = mockClinics.find((c) => c.id === user.clinicId);
-    if (!clinic) {
-      setAuthError("Erro de sistema: clínica não localizada.");
-      return;
-    }
-
-    setCurrentUser(user);
-    setCurrentClinic(clinic);
-    
-    // Set default requester details for Break the Glass
-    setRequesterName(user.name);
-    setRequesterRole(user.role);
   };
 
   const handleLogout = () => {
@@ -107,27 +168,62 @@ export default function MediatorPage() {
     setSearchResults([]);
     setOtpCode("");
     setJustification("");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("centralizador_token");
+      localStorage.removeItem("centralizador_user");
+      localStorage.removeItem("centralizador_clinic");
+    }
+    setToken(null);
   };
 
   // Perform search query
-  const performSearch = (query: string) => {
+  const performSearch = async (query: string) => {
     setAuthorizedHistory(null);
     if (!query.trim()) {
       setSearchResults([]);
       return;
     }
 
-    const cleanQuery = query.replace(/\D/g, ""); // Remove non-digits
-    const results = mockPatients.filter((p) => {
-      const matchCpf = cleanQuery && p.cpf.includes(cleanQuery);
-      const matchName = p.name.toLowerCase().includes(query.toLowerCase());
-      return matchCpf || matchName;
-    });
-
-    setSearchResults(results);
-    if (results.length > 0) {
-      setSelectedPatient(results[0]);
-    } else {
+    try {
+      const res = await fetch(`${backendUrl}/api/patients/search?cpf=${encodeURIComponent(query)}&name=${encodeURIComponent(query)}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (!res.ok) {
+        throw new Error("Erro na busca de paciente");
+      }
+      const data = await res.json();
+      if (data.found && data.patient) {
+        // Mapeia para o tipo Patient do front
+        const pat: Patient = {
+          id: data.patient.id,
+          name: data.patient.name,
+          cpf: data.patient.cpf,
+          birthDate: data.patient.birthDate,
+          phone: "",
+          email: "",
+          otpToken: "",
+          allergies: [],
+          medications: [],
+          exams: []
+        };
+        // Busca se o paciente é um dos mockados para termos os OTPs na coluninha do sandbox!
+        const mockPat = mockPatients.find(p => p.cpf === pat.cpf);
+        if (mockPat) {
+          pat.phone = mockPat.phone;
+          pat.email = mockPat.email;
+          pat.otpToken = mockPat.otpToken;
+        }
+        setSearchResults([pat]);
+        setSelectedPatient(pat);
+      } else {
+        setSearchResults([]);
+        setSelectedPatient(null);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setSearchResults([]);
       setSelectedPatient(null);
     }
   };
@@ -139,54 +235,106 @@ export default function MediatorPage() {
   };
 
   // Request Data handler
-  const handleRequestData = (e: React.FormEvent) => {
+  const handleRequestData = async (e: React.FormEvent) => {
     e.preventDefault();
     setRequestError("");
 
-    if (!selectedPatient || !currentClinic || !currentUser) return;
+    if (!selectedPatient || !currentClinic || !currentUser || !token) return;
 
-    if (authMethod === "token") {
-      if (otpCode !== selectedPatient.otpToken) {
-        setRequestError("Código autorizador inválido. Solicite um novo código gerado no aplicativo do paciente.");
-        return;
+    try {
+      const payload: any = {
+        patientId: selectedPatient.id,
+        authMethod: authMethod,
+      };
+      if (authMethod === "token") {
+        payload.tokenCode = otpCode;
+      } else {
+        payload.justification = justification;
+        payload.requesterDetails = `${requesterName} - ${requesterRole}`;
       }
-    } else {
-      if (!justification.trim()) {
-        setRequestError("A justificativa clínica/médica é obrigatória para o acesso crítico (Break the Glass).");
-        return;
+
+      const res = await fetch(`${backendUrl}/api/patients/request-data`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Erro ao requisitar dados clínicos");
       }
-      if (!requesterName.trim() || !requesterRole.trim()) {
-        setRequestError("Por favor, preencha os dados do profissional solicitante.");
-        return;
+
+      const data = await res.json();
+      
+      // Sucesso - Recebemos o prontuário completo!
+      const patientData = data.patient;
+      const auditLogData = data.log;
+
+      // Atualiza o paciente selecionado com as informações clínicas completas (alergias, medicamentos, exames)
+      const fullPatient: Patient = {
+        id: patientData.id,
+        name: patientData.name,
+        cpf: patientData.cpf,
+        birthDate: patientData.birthDate,
+        phone: selectedPatient.phone || "(11) 98765-4321",
+        email: selectedPatient.email || "paciente@email.com",
+        otpToken: selectedPatient.otpToken,
+        allergies: patientData.allergies || [],
+        medications: patientData.medications || [],
+        exams: (patientData.exams || []).map((ex: any) => ({
+          id: ex.id,
+          title: ex.title,
+          date: ex.date,
+          provider: ex.provider,
+          result: ex.result
+        }))
+      };
+
+      // Solicita o bundle HL7 FHIR diretamente da nossa rota dedicada no backend
+      const hl7Res = await fetch(`${backendUrl}/api/patients/${patientData.id}/hl7-fhir`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      let hl7Str = "";
+      if (hl7Res.ok) {
+        const hl7Data = await hl7Res.json();
+        hl7Str = JSON.stringify(hl7Data, null, 2);
+      } else {
+        hl7Str = generateHL7FHIRBundle(fullPatient);
       }
+
+      const requestTime = auditLogData.timestamp || new Date().toISOString();
+      setAuthorizedHistory({
+        patient: fullPatient,
+        method: authMethod,
+        justification: authMethod === "break_the_glass" ? justification : undefined,
+        requesterName: authMethod === "break_the_glass" ? requesterName : currentUser.name,
+        requesterRole: authMethod === "break_the_glass" ? requesterRole : currentUser.role,
+        hl7Bundle: hl7Str,
+        timestamp: requestTime
+      });
+
+      // Adiciona log de auditoria ao estado do frontend
+      const newLog: AuditLog = {
+        id: `log-${Date.now()}`,
+        clinicName: auditLogData.clinicName || currentClinic.name,
+        requesterEmail: auditLogData.requesterEmail || currentUser.email,
+        patientName: auditLogData.patientName || fullPatient.name,
+        authMethod: auditLogData.authMethod || authMethod,
+        requestType: auditLogData.requestType || (currentClinic.type === "partner" ? "hl7_download" : "direct"),
+        justification: auditLogData.justification || justification,
+        timestamp: requestTime
+      };
+
+      setAuditLogs([newLog, ...auditLogs]);
+
+    } catch (err: any) {
+      setRequestError(err.message || "Falha na requisição de dados clínicos");
     }
-
-    // Success - Grant Access
-    const hl7Str = generateHL7FHIRBundle(selectedPatient);
-    const requestTime = new Date().toISOString();
-    setAuthorizedHistory({
-      patient: selectedPatient,
-      method: authMethod,
-      justification: authMethod === "break_the_glass" ? justification : undefined,
-      requesterName: authMethod === "break_the_glass" ? requesterName : currentUser.name,
-      requesterRole: authMethod === "break_the_glass" ? requesterRole : currentUser.role,
-      hl7Bundle: hl7Str,
-      timestamp: requestTime
-    });
-
-    // Add to audit log
-    const newLog: AuditLog = {
-      id: `log-${Date.now()}`,
-      clinicName: currentClinic.name,
-      requesterEmail: currentUser.email,
-      patientName: selectedPatient.name,
-      authMethod: authMethod,
-      requestType: currentClinic.type === "partner" ? "hl7_download" : "direct",
-      justification: authMethod === "break_the_glass" ? justification : undefined,
-      timestamp: requestTime
-    };
-
-    setAuditLogs([newLog, ...auditLogs]);
   };
 
   // Instant HL7 Exporter for Sandbox
@@ -270,19 +418,19 @@ export default function MediatorPage() {
     return (
       <div className="space-y-6 text-slate-800 text-sm leading-relaxed p-2">
         {/* Document Header */}
-        <div className="flex justify-between items-center border-b-2 border-slate-900 pb-4 gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-slate-900 pb-4 gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#1B5E3B] text-white">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#1B5E3B] text-white">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <div>
-              <h2 className="text-sm font-black uppercase tracking-wider text-slate-900 leading-none">Rede Nacional de Dados de Saúde (RNDS)</h2>
-              <h1 className="text-lg font-black text-[#1B5E3B] mt-1 leading-none">Sumário Clínico do Paciente</h1>
+              <h2 className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-900 leading-none">Rede Nacional de Dados de Saúde (RNDS)</h2>
+              <h1 className="text-sm sm:text-lg font-black text-[#1B5E3B] mt-1 leading-none">Sumário Clínico do Paciente</h1>
             </div>
           </div>
-          <div className="text-right text-xs text-slate-500 font-mono">
+          <div className="text-left sm:text-right text-[11px] sm:text-xs text-slate-500 font-mono w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0">
             <p className="font-bold text-slate-800">CÓD: {docSerial}</p>
             <p>Gerado em: {formattedDate}</p>
           </div>
@@ -522,6 +670,37 @@ export default function MediatorPage() {
                 Autenticar no Mediador
               </button>
             </div>
+
+            <div className="pt-2 border-t border-brand-border dark:border-brand-dark-border">
+              <button
+                type="button"
+                onClick={() => setShowApiConfig(!showApiConfig)}
+                className="text-xs text-brand-text/50 dark:text-brand-dark-text/50 hover:text-brand-text flex items-center justify-center w-full gap-1 focus:outline-none py-1 transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h1.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-1.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.43l1.004-.827c.292-.24.437-.613.43-.991a6.936 6.936 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                {showApiConfig ? "Ocultar Configurações de API" : "Configurar Endereço da API"}
+              </button>
+              {showApiConfig && (
+                <div className="mt-2 space-y-2 p-3 bg-brand-bg/50 dark:bg-brand-dark-bg/50 rounded-lg border border-brand-border dark:border-brand-dark-border animate-fadeIn">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text/70 dark:text-brand-dark-text/70">
+                    Endpoint do Backend Centralizador
+                  </label>
+                  <input
+                    type="text"
+                    value={backendUrl}
+                    onChange={(e) => setBackendUrl(e.target.value)}
+                    placeholder="http://localhost:8002"
+                    className="w-full rounded border border-brand-border dark:border-brand-dark-border bg-brand-paper dark:bg-brand-dark-paper px-2.5 py-1.5 text-xs text-brand-text dark:text-brand-dark-text focus:outline-none focus:border-primary transition"
+                  />
+                  <p className="text-[9px] text-brand-text/50 dark:text-brand-dark-text/50 leading-relaxed text-center">
+                    Aponta o mediador para a URL do microsserviço de usuários em produção ou homologação.
+                  </p>
+                </div>
+              )}
+            </div>
             
             <div className="text-center text-xs text-brand-text/50 dark:text-brand-dark-text/50 pt-2 border-t border-brand-border dark:border-brand-dark-border">
               <p>Demo Logins (Código | E-mail | Senha: senha123):</p>
@@ -544,46 +723,47 @@ export default function MediatorPage() {
       <div className="no-print flex flex-col min-h-screen">
         
         {/* Top Header */}
-        <header className="sticky top-0 z-10 bg-brand-paper/90 dark:bg-brand-dark-paper/90 backdrop-blur-md border-b border-brand-border dark:border-brand-dark-border px-6 py-4 transition-colors duration-200">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-white shadow-sm">
+        <header className="sticky top-0 z-10 bg-brand-paper/90 dark:bg-brand-dark-paper/90 backdrop-blur-md border-b border-brand-border dark:border-brand-dark-border px-4 sm:px-6 py-4 transition-colors duration-200">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
               <div>
-                <h1 className="text-xl font-bold text-primary dark:text-secondary-light">Mediador Clínico</h1>
-                <p className="text-xs text-brand-text/60 dark:text-brand-dark-text/60 font-medium">TCC - Centralizador de Registros de Exames e Diagnósticos</p>
+                <h1 className="text-lg sm:text-xl font-bold text-primary dark:text-secondary-light leading-tight">Mediador Clínico</h1>
+                <p className="text-[10px] sm:text-xs text-brand-text/60 dark:text-brand-dark-text/60 font-medium">TCC - Centralizador de Registros de Exames e Diagnósticos</p>
               </div>
             </div>
 
             {/* Connected User Profile & Theme Switcher */}
-            <div className="flex items-center gap-4">
-              <ThemeToggle />
+            <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4 border-t sm:border-t-0 border-brand-border dark:border-brand-dark-border pt-3 sm:pt-0">
+              <div className="flex items-center gap-2">
+                <ThemeToggle />
+                <button
+                  onClick={handleLogout}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-brand-border dark:border-brand-dark-border text-brand-text/75 dark:text-brand-dark-text/75 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-900/50 transition-all duration-200"
+                  title="Sair do Sistema"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                  </svg>
+                </button>
+              </div>
               
               <div className="text-right">
-                <p className="text-sm font-semibold text-brand-text dark:text-brand-dark-text">{currentUser.name}</p>
-                <p className="text-xs text-brand-text/70 dark:text-brand-dark-text/70">
+                <p className="text-xs sm:text-sm font-semibold text-brand-text dark:text-brand-dark-text">{currentUser.name}</p>
+                <p className="text-[10px] sm:text-xs text-brand-text/70 dark:text-brand-dark-text/70 leading-normal">
                   {currentUser.role} • <span className="font-bold">{currentClinic.name} ({currentClinic.id})</span>
                 </p>
                 <div className="mt-1 flex items-center justify-end gap-1.5">
-                  <span className={`inline-block h-2.5 w-2.5 rounded-full ${currentClinic.type === "internal" ? "bg-green-500" : "bg-blue-500"}`}></span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-brand-text/60 dark:text-brand-dark-text/60">
+                  <span className={`inline-block h-2 w-2 rounded-full ${currentClinic.type === "internal" ? "bg-green-500" : "bg-blue-500"}`}></span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-brand-text/60 dark:text-brand-dark-text/60">
                     {currentClinic.type === "internal" ? "Clínica Integrada" : "Clínica Parceira (HL7)"}
                   </span>
                 </div>
               </div>
-
-              <button
-                onClick={handleLogout}
-                className="flex h-10 w-10 items-center justify-center rounded-lg border border-brand-border dark:border-brand-dark-border text-brand-text/75 dark:text-brand-dark-text/75 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-900/50 transition-all duration-200"
-                title="Sair do Sistema"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-                </svg>
-              </button>
             </div>
           </div>
         </header>
@@ -594,7 +774,7 @@ export default function MediatorPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* Left Column: Search & Patient Database (Sandbox) */}
-            <div className="lg:col-span-1 space-y-6">
+            <div className="lg:col-span-1 space-y-6 min-w-0">
               
               {/* Patient Search card */}
               <div className="bg-brand-paper dark:bg-brand-dark-paper border border-brand-border dark:border-brand-dark-border rounded-xl p-5 shadow-sm space-y-4">
@@ -727,7 +907,7 @@ export default function MediatorPage() {
             </div>
 
             {/* Right/Middle Column: Request Panel & Data Display */}
-            <div className="lg:col-span-2 space-y-6">
+            <div className="lg:col-span-2 space-y-6 min-w-0">
               
               {/* Patient Request Details card */}
               <div className="bg-brand-paper dark:bg-brand-dark-paper border border-brand-border dark:border-brand-dark-border rounded-xl p-5 shadow-sm">
@@ -758,20 +938,20 @@ export default function MediatorPage() {
                       )}
 
                       {/* Mode selector */}
-                      <div className="grid grid-cols-2 gap-2 bg-brand-bg dark:bg-brand-dark-bg p-1 rounded-lg">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-brand-bg dark:bg-brand-dark-bg p-1 rounded-lg">
                         <button
                           type="button"
                           onClick={() => {
                             setAuthMethod("token");
                             setRequestError("");
                           }}
-                          className={`flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-all ${
+                          className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all ${
                             authMethod === "token"
                               ? "bg-brand-paper dark:bg-brand-dark-paper text-primary dark:text-secondary-light shadow-sm"
                               : "text-brand-text/60 dark:text-brand-dark-text/60 hover:text-brand-text dark:hover:text-brand-dark-text"
                           }`}
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
                             <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
                           </svg>
                           Código OTP do Paciente
@@ -782,13 +962,13 @@ export default function MediatorPage() {
                             setAuthMethod("break_the_glass");
                             setRequestError("");
                           }}
-                          className={`flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-all ${
+                          className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all ${
                             authMethod === "break_the_glass"
                               ? "bg-red-500 text-white shadow-sm"
                               : "text-brand-text/60 dark:text-brand-dark-text/60 hover:text-red-500"
                           }`}
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
                             <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                           </svg>
                           Acesso Crítico (Break the Glass)
@@ -916,10 +1096,10 @@ export default function MediatorPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                       <button
                         onClick={() => setShowPrintPreview(true)}
-                        className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-2 rounded-lg text-xs transition shadow-sm"
+                        className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-2 rounded-lg text-xs transition shadow-sm w-full sm:w-auto"
                         title="Visualizar documento sumarizado em tela e gerar PDF para impressão"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-4 h-4">
@@ -930,7 +1110,7 @@ export default function MediatorPage() {
 
                       <button
                         onClick={handleDownloadHL7}
-                        className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-2 rounded-lg text-xs transition shadow-sm"
+                        className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-2 rounded-lg text-xs transition shadow-sm w-full sm:w-auto"
                         title="Baixar prontuário completo no formato de interoperabilidade HL7 FHIR JSON"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -1012,27 +1192,52 @@ export default function MediatorPage() {
                       Registros de Laudos e Exames Compartilhados
                     </h3>
                     {authorizedHistory.patient.exams.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border border-brand-border dark:border-brand-dark-border rounded-lg overflow-hidden">
-                          <thead className="bg-brand-bg dark:bg-brand-dark-bg font-bold text-brand-text/70 dark:text-brand-dark-text/70 uppercase tracking-wider text-[9px]">
-                            <tr>
-                              <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Exame</th>
-                              <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Data</th>
-                              <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Clínica Laboratório</th>
-                              <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Laudo Final / Conclusão</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-brand-border dark:divide-brand-dark-border">
-                            {authorizedHistory.patient.exams.map((exam) => (
-                              <tr key={exam.id} className="hover:bg-brand-bg/25 dark:hover:bg-brand-dark-bg/25 text-brand-text dark:text-brand-dark-text transition">
-                                <td className="p-2.5 font-semibold">{exam.title}</td>
-                                <td className="p-2.5 whitespace-nowrap">{new Date(exam.date).toLocaleDateString("pt-BR")}</td>
-                                <td className="p-2.5">{exam.provider}</td>
-                                <td className="p-2.5 max-w-xs">{exam.result}</td>
+                      <div className="w-full">
+                        {/* Desktop View */}
+                        <div className="hidden sm:block overflow-x-auto">
+                          <table className="w-full text-left text-xs border border-brand-border dark:border-brand-dark-border rounded-lg overflow-hidden">
+                            <thead className="bg-brand-bg dark:bg-brand-dark-bg font-bold text-brand-text/70 dark:text-brand-dark-text/70 uppercase tracking-wider text-[9px]">
+                              <tr>
+                                <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Exame</th>
+                                <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Data</th>
+                                <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Clínica Laboratório</th>
+                                <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Laudo Final / Conclusão</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-brand-border dark:divide-brand-dark-border">
+                              {authorizedHistory.patient.exams.map((exam) => (
+                                <tr key={exam.id} className="hover:bg-brand-bg/25 dark:hover:bg-brand-dark-bg/25 text-brand-text dark:text-brand-dark-text transition">
+                                  <td className="p-2.5 font-semibold">{exam.title}</td>
+                                  <td className="p-2.5 whitespace-nowrap">{new Date(exam.date).toLocaleDateString("pt-BR")}</td>
+                                  <td className="p-2.5">{exam.provider}</td>
+                                  <td className="p-2.5 max-w-xs">{exam.result}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        
+                        {/* Mobile Cards View */}
+                        <div className="block sm:hidden space-y-3">
+                          {authorizedHistory.patient.exams.map((exam) => (
+                            <div key={exam.id} className="p-3.5 rounded-lg border border-brand-border dark:border-brand-dark-border bg-brand-bg/25 dark:bg-brand-dark-bg/25 space-y-2">
+                              <div className="flex justify-between items-start">
+                                <h4 className="text-xs font-bold text-brand-text dark:text-brand-dark-text">{exam.title}</h4>
+                                <span className="text-[10px] text-brand-text/50 dark:text-brand-dark-text/50 whitespace-nowrap font-medium">
+                                  {new Date(exam.date).toLocaleDateString("pt-BR")}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-brand-text/70 dark:text-brand-dark-text/70">
+                                <strong>Clínica:</strong> {exam.provider}
+                              </p>
+                              <div className="p-2.5 rounded bg-brand-paper dark:bg-brand-dark-paper border border-brand-border dark:border-brand-dark-border mt-1">
+                                <p className="text-[11px] text-brand-text/80 dark:text-brand-dark-text/80 italic leading-relaxed">
+                                  {exam.result}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : (
                       <div className="p-5 text-center border border-dashed border-brand-border dark:border-brand-dark-border rounded-lg">
@@ -1074,55 +1279,103 @@ export default function MediatorPage() {
             </p>
 
             {filteredAuditLogs.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border border-brand-border dark:border-brand-dark-border rounded-lg overflow-hidden">
-                  <thead className="bg-brand-bg dark:bg-brand-dark-bg font-bold text-brand-text/70 dark:text-brand-dark-text/70 uppercase tracking-wider text-[9px]">
-                    <tr>
-                      <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Data/Hora</th>
-                      <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Operador (E-mail)</th>
-                      <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Paciente</th>
-                      <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Tipo</th>
-                      <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Autorização</th>
-                      <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Justificativa / Motivo de Acesso Crítico</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-brand-border dark:divide-brand-dark-border">
-                    {filteredAuditLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-brand-bg/25 dark:hover:bg-brand-dark-bg/25 text-brand-text dark:text-brand-dark-text transition">
-                        <td className="p-2.5 whitespace-nowrap">{new Date(log.timestamp).toLocaleString("pt-BR")}</td>
-                        <td className="p-2.5 font-mono">{log.requesterEmail}</td>
-                        <td className="p-2.5 font-semibold">{log.patientName}</td>
-                        <td className="p-2.5">
+              <div className="w-full">
+                {/* Desktop View */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-xs border border-brand-border dark:border-brand-dark-border rounded-lg overflow-hidden">
+                    <thead className="bg-brand-bg dark:bg-brand-dark-bg font-bold text-brand-text/70 dark:text-brand-dark-text/70 uppercase tracking-wider text-[9px]">
+                      <tr>
+                        <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Data/Hora</th>
+                        <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Operador (E-mail)</th>
+                        <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Paciente</th>
+                        <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Tipo</th>
+                        <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Autorização</th>
+                        <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Justificativa / Motivo de Acesso Crítico</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-brand-border dark:divide-brand-dark-border">
+                      {filteredAuditLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-brand-bg/25 dark:hover:bg-brand-dark-bg/25 text-brand-text dark:text-brand-dark-text transition">
+                          <td className="p-2.5 whitespace-nowrap">{new Date(log.timestamp).toLocaleString("pt-BR")}</td>
+                          <td className="p-2.5 font-mono">{log.requesterEmail}</td>
+                          <td className="p-2.5 font-semibold">{log.patientName}</td>
+                          <td className="p-2.5">
+                            <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                              log.requestType === "direct"
+                                ? "bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-400"
+                                : "bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400"
+                            }`}>
+                              {log.requestType === "direct" ? "Direto API" : "Export HL7"}
+                            </span>
+                          </td>
+                          <td className="p-2.5">
+                            <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                              log.authMethod === "token"
+                                ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                : "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 font-extrabold animate-pulse"
+                            }`}>
+                              {log.authMethod === "token" ? "OTP Código" : "Break The Glass"}
+                            </span>
+                          </td>
+                          <td className="p-2.5 max-w-xs text-brand-text/75 dark:text-brand-dark-text/75 italic">
+                            {log.justification ? (
+                              <span title={log.justification} className="line-clamp-1 text-red-600 dark:text-red-400 font-medium">
+                                {log.justification}
+                              </span>
+                            ) : (
+                              <span className="text-brand-text/40 dark:text-brand-dark-text/40">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards View */}
+                <div className="block md:hidden space-y-3">
+                  {filteredAuditLogs.map((log) => (
+                    <div key={log.id} className="p-4 rounded-lg border border-brand-border dark:border-brand-dark-border bg-brand-bg/25 dark:bg-brand-dark-bg/25 space-y-2 text-xs">
+                      <div className="flex justify-between items-start gap-2">
+                        <span className="text-[10px] font-mono text-brand-text/50 dark:text-brand-dark-text/50">
+                          {new Date(log.timestamp).toLocaleString("pt-BR")}
+                        </span>
+                        <div className="flex gap-1.5 shrink-0">
                           <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${
                             log.requestType === "direct"
                               ? "bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-400"
                               : "bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400"
                           }`}>
-                            {log.requestType === "direct" ? "Direto API" : "Export HL7"}
+                            {log.requestType === "direct" ? "Direto" : "HL7"}
                           </span>
-                        </td>
-                        <td className="p-2.5">
                           <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${
                             log.authMethod === "token"
                               ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                              : "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 font-extrabold animate-pulse"
+                              : "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 font-extrabold"
                           }`}>
-                            {log.authMethod === "token" ? "OTP Código" : "Break The Glass"}
+                            {log.authMethod === "token" ? "OTP" : "Break Glass"}
                           </span>
-                        </td>
-                        <td className="p-2.5 max-w-xs text-brand-text/75 dark:text-brand-dark-text/75 italic">
-                          {log.justification ? (
-                            <span title={log.justification} className="line-clamp-1 text-red-600 dark:text-red-400 font-medium">
-                              {log.justification}
-                            </span>
-                          ) : (
-                            <span className="text-brand-text/40 dark:text-brand-dark-text/40">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <p className="text-brand-text dark:text-brand-dark-text">
+                          <strong>Operador:</strong> <span className="font-mono text-[11px] break-all">{log.requesterEmail}</span>
+                        </p>
+                        <p className="text-brand-text dark:text-brand-dark-text">
+                          <strong>Paciente:</strong> <span className="font-semibold">{log.patientName}</span>
+                        </p>
+                        {log.justification && (
+                          <div className="mt-1.5 p-2 rounded bg-red-500/5 dark:bg-red-500/10 border border-red-500/10 text-red-700 dark:text-red-400">
+                            <p className="text-[10px] italic">
+                              <strong>Motivo:</strong> {log.justification}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="p-6 text-center border border-dashed border-brand-border dark:border-brand-dark-border rounded-lg bg-brand-bg/10 dark:bg-brand-dark-bg/10">
