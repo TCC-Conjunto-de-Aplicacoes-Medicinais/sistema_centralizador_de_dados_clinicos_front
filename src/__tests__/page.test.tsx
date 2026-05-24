@@ -3,10 +3,9 @@ import { render, screen } from '@testing-library/react'
 import Home from '@/app/page'
 
 describe('Home Page', () => {
-  it('renders a heading', () => {
+  it('renders the mediator page heading', () => {
     render(<Home />)
-    const heading = screen.getByRole('heading', { level: 1 })
+    const heading = screen.getByRole('heading', { level: 2, name: /mediador clínico/i })
     expect(heading).toBeInTheDocument()
-    expect(heading).toHaveTextContent('To get started, edit the page.tsx file.')
   })
 })
