@@ -6,11 +6,10 @@ import {
   Clinic,
   ClinicUser,
   AuditLog,
-  mockClinics,
-  mockClinicUsers,
   mockPatients,
   initialAuditLogs,
-  generateHL7FHIRBundle
+  generateHL7FHIRBundle,
+  Exam
 } from "./mockData";
 
 export default function MediatorPage() {
@@ -153,8 +152,9 @@ export default function MediatorPage() {
       // Set default requester details for Break the Glass
       setRequesterName(user.name);
       setRequesterRole(user.role);
-    } catch (err: any) {
-      setAuthError(err.message || "Erro ao conectar com o servidor.");
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Erro ao conectar com o servidor.";
+      setAuthError(errorMsg);
     }
   };
 
@@ -221,7 +221,7 @@ export default function MediatorPage() {
         setSearchResults([]);
         setSelectedPatient(null);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setSearchResults([]);
       setSelectedPatient(null);
@@ -242,16 +242,14 @@ export default function MediatorPage() {
     if (!selectedPatient || !currentClinic || !currentUser || !token) return;
 
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         patientId: selectedPatient.id,
         authMethod: authMethod,
+        ...(authMethod === "token"
+          ? { tokenCode: otpCode }
+          : { justification, requesterDetails: `${requesterName} - ${requesterRole}` }
+        )
       };
-      if (authMethod === "token") {
-        payload.tokenCode = otpCode;
-      } else {
-        payload.justification = justification;
-        payload.requesterDetails = `${requesterName} - ${requesterRole}`;
-      }
 
       const res = await fetch(`${backendUrl}/api/patients/request-data`, {
         method: "POST",
@@ -284,7 +282,7 @@ export default function MediatorPage() {
         otpToken: selectedPatient.otpToken,
         allergies: patientData.allergies || [],
         medications: patientData.medications || [],
-        exams: (patientData.exams || []).map((ex: any) => ({
+        exams: (patientData.exams || []).map((ex: Exam) => ({
           id: ex.id,
           title: ex.title,
           date: ex.date,
@@ -332,8 +330,9 @@ export default function MediatorPage() {
 
       setAuditLogs([newLog, ...auditLogs]);
 
-    } catch (err: any) {
-      setRequestError(err.message || "Falha na requisição de dados clínicos");
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Falha na requisição de dados clínicos";
+      setRequestError(errorMsg);
     }
   };
 
@@ -464,7 +463,7 @@ export default function MediatorPage() {
               </svg>
               <h3 className="text-xs font-black uppercase tracking-wider">Atenção: Acesso Emergencial Registrado por Força de Lei</h3>
             </div>
-            <p className="text-xs text-red-900 font-semibold italic">"Justificativa Médica: {justification}"</p>
+            <p className="text-xs text-red-900 font-semibold italic">&quot;Justificativa Médica: {justification}&quot;</p>
             <p className="text-[11px] text-red-800">
               Profissional Declarado Responsável: <span className="font-bold">{requesterName}</span> ({requesterRole})
             </p>
