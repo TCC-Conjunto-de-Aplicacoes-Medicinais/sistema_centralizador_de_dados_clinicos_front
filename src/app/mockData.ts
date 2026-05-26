@@ -231,7 +231,7 @@ export const initialAuditLogs: AuditLog[] = [
 export function generateHL7FHIRBundle(patient: Patient): string {
   const timestamp = new Date().toISOString();
   
-  const entries: any[] = [
+  const entries: Record<string, unknown>[] = [
     {
       resource: {
         resourceType: "Patient",
