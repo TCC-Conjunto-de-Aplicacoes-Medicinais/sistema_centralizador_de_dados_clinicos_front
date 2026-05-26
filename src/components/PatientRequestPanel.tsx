@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Patient, Clinic, ClinicUser, AuditLog, AuthorizedHistory, generateHL7FHIRBundle } from "../app/mockData";
 
 interface PatientRequestPanelProps {
@@ -19,17 +19,17 @@ export default function PatientRequestPanel({
   const [authMethod, setAuthMethod] = useState<"token" | "break_the_glass">("token");
   const [otpCode, setOtpCode] = useState("");
   const [justification, setJustification] = useState("");
-  const [requesterName, setRequesterName] = useState("");
-  const [requesterRole, setRequesterRole] = useState("");
+  const [requesterName, setRequesterName] = useState(currentUser.name);
+  const [requesterRole, setRequesterRole] = useState(currentUser.role);
   const [requestError, setRequestError] = useState("");
 
-  // Sync requester details when currentUser changes or component loads
-  useEffect(() => {
-    if (currentUser) {
-      setRequesterName(currentUser.name);
-      setRequesterRole(currentUser.role);
-    }
-  }, [currentUser]);
+  // Sync requester details when currentUser changes (during rendering)
+  const [prevUser, setPrevUser] = useState(currentUser);
+  if (currentUser !== prevUser) {
+    setPrevUser(currentUser);
+    setRequesterName(currentUser.name);
+    setRequesterRole(currentUser.role);
+  }
 
   if (!selectedPatient) {
     return (

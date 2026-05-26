@@ -22,10 +22,8 @@ export default function DashboardHeader({
     <header className="sticky top-0 z-10 bg-brand-paper/90 dark:bg-brand-dark-paper/90 backdrop-blur-md border-b border-brand-border dark:border-brand-dark-border px-4 sm:px-6 py-4 transition-colors duration-200">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-slate-900 border border-brand-border dark:border-brand-dark-border shadow-sm overflow-hidden p-1.5">
+            <img src="/logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
           <div>
             <h1 className="text-lg sm:text-xl font-bold text-primary dark:text-secondary-light leading-tight">Mediador Clínico</h1>

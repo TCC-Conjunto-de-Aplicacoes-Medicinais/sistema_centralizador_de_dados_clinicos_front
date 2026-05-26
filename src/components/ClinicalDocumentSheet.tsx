@@ -28,10 +28,8 @@ export default function ClinicalDocumentSheet({
       {/* Document Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-slate-900 pb-4 gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#1B5E3B] text-white">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-300 shadow-sm overflow-hidden p-1">
+            <img src="/logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
           <div>
             <h2 className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-900 leading-none">Rede Nacional de Dados de Saúde (RNDS)</h2>
@@ -72,7 +70,7 @@ export default function ClinicalDocumentSheet({
             </svg>
             <h3 className="text-xs font-black uppercase tracking-wider">Atenção: Acesso Emergencial Registrado por Força de Lei</h3>
           </div>
-          <p className="text-xs text-red-900 font-semibold italic">"Justificativa Médica: {justification}"</p>
+          <p className="text-xs text-red-900 font-semibold italic">&quot;Justificativa Médica: {justification}&quot;</p>
           <p className="text-[11px] text-red-800">
             Profissional Declarado Responsável: <span className="font-bold">{requesterName}</span> ({requesterRole})
           </p>

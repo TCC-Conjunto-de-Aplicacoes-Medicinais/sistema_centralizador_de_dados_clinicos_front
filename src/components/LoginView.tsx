@@ -52,10 +52,8 @@ export default function LoginView({ theme, setTheme, onLoginSuccess }: LoginView
       </div>
       <div className="w-full max-w-md space-y-6 bg-brand-paper dark:bg-brand-dark-paper p-8 rounded-2xl border border-brand-border dark:border-brand-dark-border shadow-xl hover-scale">
         <div className="flex flex-col items-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-white shadow-md">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-brand-border dark:border-brand-dark-border shadow-md overflow-hidden p-2">
+            <img src="/logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
           <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-primary dark:text-secondary-light">
             Mediador Clínico

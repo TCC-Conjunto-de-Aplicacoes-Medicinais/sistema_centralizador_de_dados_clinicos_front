@@ -26,7 +26,6 @@ export default function MediatorPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   // Auth State
-  const [token, setToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<ClinicUser | null>(null);
   const [currentClinic, setCurrentClinic] = useState<Clinic | null>(null);
 
@@ -48,15 +47,20 @@ export default function MediatorPage() {
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    setTheme(savedTheme || systemTheme);
+    const resolvedTheme = savedTheme || systemTheme;
+
+    setTimeout(() => {
+      setTheme(resolvedTheme);
+    }, 0);
 
     const savedUser = localStorage.getItem("centralizador_user");
     const savedClinic = localStorage.getItem("centralizador_clinic");
     const savedToken = localStorage.getItem("centralizador_token");
     if (savedUser && savedClinic && savedToken) {
-      setCurrentUser(JSON.parse(savedUser));
-      setCurrentClinic(JSON.parse(savedClinic));
-      setToken(savedToken);
+      setTimeout(() => {
+        setCurrentUser(JSON.parse(savedUser));
+        setCurrentClinic(JSON.parse(savedClinic));
+      }, 0);
     }
   }, []);
 
@@ -80,7 +84,6 @@ export default function MediatorPage() {
     localStorage.setItem("centralizador_user", JSON.stringify(user));
     localStorage.setItem("centralizador_clinic", JSON.stringify(clinic));
 
-    setToken(jwtToken);
     setCurrentUser(user);
     setCurrentClinic(clinic);
   };
@@ -96,7 +99,6 @@ export default function MediatorPage() {
     localStorage.removeItem("centralizador_token");
     localStorage.removeItem("centralizador_user");
     localStorage.removeItem("centralizador_clinic");
-    setToken(null);
   };
 
   // Perform search query locally using mock data
