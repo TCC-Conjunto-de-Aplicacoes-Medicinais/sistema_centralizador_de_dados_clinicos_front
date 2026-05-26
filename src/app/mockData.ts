@@ -44,6 +44,16 @@ export interface AuditLog {
   timestamp: string;
 }
 
+export interface AuthorizedHistory {
+  patient: Patient;
+  method: 'token' | 'break_the_glass';
+  justification?: string;
+  requesterName?: string;
+  requesterRole?: string;
+  hl7Bundle: string;
+  timestamp: string;
+}
+
 export const mockClinics: Clinic[] = [
   { id: "CLI-1001", name: "Clínica Vida Saudável", type: "internal" },
   { id: "CLI-2002", name: "Hospital Metropolitano São Lucas", type: "internal" },
