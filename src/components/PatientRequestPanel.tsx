@@ -7,14 +7,18 @@ interface PatientRequestPanelProps {
   selectedPatient: Patient | null;
   currentClinic: Clinic;
   currentUser: ClinicUser;
+  authorizedHistory?: AuthorizedHistory | null;
   onAuthorizationSuccess: (history: AuthorizedHistory, newLog: AuditLog) => void;
+  onRevokeAccess?: () => void;
 }
 
 export default function PatientRequestPanel({
   selectedPatient,
   currentClinic,
   currentUser,
+  authorizedHistory,
   onAuthorizationSuccess,
+  onRevokeAccess,
 }: PatientRequestPanelProps) {
   const [authMethod, setAuthMethod] = useState<"token" | "break_the_glass">("token");
   const [otpCode, setOtpCode] = useState("");
@@ -22,8 +26,9 @@ export default function PatientRequestPanel({
   const [requesterName, setRequesterName] = useState(currentUser.name);
   const [requesterRole, setRequesterRole] = useState(currentUser.role);
   const [requestError, setRequestError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync requester details when currentUser changes (during rendering)
+  // Sync requester details when currentUser changes
   const [prevUser, setPrevUser] = useState(currentUser);
   if (currentUser !== prevUser) {
     setPrevUser(currentUser);
@@ -45,6 +50,8 @@ export default function PatientRequestPanel({
     );
   }
 
+  const isAuthorized = authorizedHistory && authorizedHistory.patient.id === selectedPatient.id;
+
   const handleRequestData = (e: React.FormEvent) => {
     e.preventDefault();
     setRequestError("");
@@ -56,54 +63,94 @@ export default function PatientRequestPanel({
       }
     }
 
-    const hl7Str = generateHL7FHIRBundle(selectedPatient);
-    const timestamp = new Date().toISOString();
+    setIsSubmitting(true);
+    setTimeout(() => {
+      setIsSubmitting(false);
+      const hl7Str = generateHL7FHIRBundle(selectedPatient);
+      const timestamp = new Date().toISOString();
 
-    const newHistory: AuthorizedHistory = {
-      patient: selectedPatient,
-      method: authMethod,
-      justification: authMethod === "break_the_glass" ? justification : undefined,
-      requesterName: authMethod === "break_the_glass" ? requesterName : currentUser.name,
-      requesterRole: authMethod === "break_the_glass" ? requesterRole : currentUser.role,
-      hl7Bundle: hl7Str,
-      timestamp: timestamp,
-    };
+      const newHistory: AuthorizedHistory = {
+        patient: selectedPatient,
+        method: authMethod,
+        justification: authMethod === "break_the_glass" ? justification : undefined,
+        requesterName: authMethod === "break_the_glass" ? requesterName : currentUser.name,
+        requesterRole: authMethod === "break_the_glass" ? requesterRole : currentUser.role,
+        hl7Bundle: hl7Str,
+        timestamp: timestamp,
+      };
 
-    const newLog: AuditLog = {
-      id: `log-${Date.now()}`,
-      clinicName: currentClinic.name,
-      requesterEmail: currentUser.email,
-      patientName: selectedPatient.name,
-      authMethod: authMethod,
-      requestType: currentClinic.type === "partner" ? "hl7_download" : "direct",
-      justification: authMethod === "break_the_glass" ? justification : undefined,
-      timestamp: timestamp,
-    };
+      const newLog: AuditLog = {
+        id: `log-${Date.now()}`,
+        clinicName: currentClinic.name,
+        requesterEmail: currentUser.email,
+        patientName: selectedPatient.name,
+        authMethod: authMethod,
+        requestType: currentClinic.type === "partner" ? "hl7_download" : "direct",
+        justification: authMethod === "break_the_glass" ? justification : undefined,
+        timestamp: timestamp,
+      };
 
-    onAuthorizationSuccess(newHistory, newLog);
-    
-    // Reset forms
-    setOtpCode("");
-    setJustification("");
+      onAuthorizationSuccess(newHistory, newLog);
+      
+      // Reset forms
+      setOtpCode("");
+      setJustification("");
+    }, 600);
   };
 
   return (
-    <div className="bg-brand-paper dark:bg-brand-dark-paper border border-brand-border dark:border-brand-dark-border rounded-xl p-5 shadow-sm">
-      <div className="space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-brand-border dark:border-brand-dark-border pb-4 gap-2">
-          <div>
+    <div className="bg-brand-paper dark:bg-brand-dark-paper border border-brand-border dark:border-brand-dark-border rounded-xl p-5 shadow-sm space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-brand-border dark:border-brand-dark-border pb-4 gap-2">
+        <div>
+          <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 dark:bg-secondary/15 text-primary-dark dark:text-secondary-light px-2 py-0.5 rounded-full">
               Paciente Selecionado
             </span>
-            <h3 className="text-xl font-extrabold text-brand-text dark:text-brand-dark-text mt-1">{selectedPatient.name}</h3>
+            {isAuthorized && (
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                ✓ Prontuário Desbloqueado
+              </span>
+            )}
           </div>
-          <div className="text-xs text-brand-text/60 dark:text-brand-dark-text/60 space-y-0.5 sm:text-right">
-            <p>CPF: <span className="font-semibold text-brand-text dark:text-brand-dark-text">{selectedPatient.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")}</span></p>
-            <p>Nascimento: <span className="font-semibold text-brand-text dark:text-brand-dark-text">{new Date(selectedPatient.birthDate).toLocaleDateString("pt-BR")}</span></p>
+          <h3 className="text-xl font-extrabold text-brand-text dark:text-brand-dark-text mt-1">{selectedPatient.name}</h3>
+        </div>
+        <div className="text-xs text-brand-text/60 dark:text-brand-dark-text/60 space-y-0.5 sm:text-right">
+          <p>CPF: <span className="font-semibold text-brand-text dark:text-brand-dark-text">{selectedPatient.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")}</span></p>
+          <p>Nascimento: <span className="font-semibold text-brand-text dark:text-brand-dark-text">{new Date(selectedPatient.birthDate).toLocaleDateString("pt-BR")}</span></p>
+        </div>
+      </div>
+
+      {/* Se o paciente já estiver autorizado, exibe o cartão de sessão ativa em vez de pedir o input novamente */}
+      {isAuthorized ? (
+        <div className="p-4 bg-emerald-500/10 dark:bg-emerald-950/30 border border-emerald-500/30 rounded-xl space-y-3 animate-fadeIn">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                ✓
+              </div>
+              <div>
+                <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
+                  Sessão Clínica Ativa & Autenticada
+                </p>
+                <p className="text-xs text-brand-text/70 dark:text-brand-dark-text/70 mt-0.5">
+                  Liberado via <strong>{authorizedHistory.method === "token" ? "Código Temporário OTP" : "Acesso Crítico Emergencial"}</strong> às {new Date(authorizedHistory.timestamp).toLocaleTimeString("pt-BR")}.
+                </p>
+              </div>
+            </div>
+
+            {onRevokeAccess && (
+              <button
+                type="button"
+                onClick={onRevokeAccess}
+                className="self-start sm:self-auto text-xs text-red-600 dark:text-red-400 hover:text-red-700 font-semibold px-3.5 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer"
+              >
+                🔒 Encerrar Sessão
+              </button>
+            )}
           </div>
         </div>
-
-        {/* Form to Request Data */}
+      ) : (
+        /* Form to Request Data */
         <form onSubmit={handleRequestData} className="space-y-4">
           {requestError && (
             <div className="rounded-lg bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 flex items-start gap-2">
@@ -122,9 +169,9 @@ export default function PatientRequestPanel({
                 setAuthMethod("token");
                 setRequestError("");
               }}
-              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all ${
+              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                 authMethod === "token"
-                  ? "bg-brand-paper dark:bg-brand-dark-paper text-primary dark:text-secondary-light shadow-sm"
+                  ? "bg-brand-paper dark:bg-brand-dark-paper text-primary dark:text-secondary-light shadow-xs"
                   : "text-brand-text/60 dark:text-brand-dark-text/60 hover:text-brand-text dark:hover:text-brand-dark-text"
               }`}
             >
@@ -139,9 +186,9 @@ export default function PatientRequestPanel({
                 setAuthMethod("break_the_glass");
                 setRequestError("");
               }}
-              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all ${
+              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                 authMethod === "break_the_glass"
-                  ? "bg-red-500 text-white shadow-sm"
+                  ? "bg-red-500 text-white shadow-xs"
                   : "text-brand-text/60 dark:text-brand-dark-text/60 hover:text-red-500"
               }`}
             >
@@ -158,7 +205,7 @@ export default function PatientRequestPanel({
               <label className="block text-xs font-semibold uppercase tracking-wider text-brand-text/75 dark:text-brand-dark-text/75">
                 Token de Autorização (6 Dígitos)
               </label>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4 items-center">
                 <input
                   type="text"
                   maxLength={6}
@@ -167,8 +214,11 @@ export default function PatientRequestPanel({
                   placeholder="000000"
                   className="w-full max-w-xs rounded-lg border border-brand-border dark:border-brand-dark-border bg-brand-paper dark:bg-brand-dark-paper px-4 py-2 text-center text-lg font-mono tracking-widest text-brand-text dark:text-brand-dark-text focus:border-primary focus:outline-none transition"
                 />
-                <div className="text-xs text-brand-text/60 dark:text-brand-dark-text/60 flex items-center">
-                  <span>OTP ativo na sandbox: <code className="bg-slate-200 dark:bg-brand-dark-border px-1.5 py-0.5 rounded text-primary dark:text-secondary-light font-mono font-bold">{selectedPatient.otpToken}</code></span>
+                <div className="text-xs text-brand-text/60 dark:text-brand-dark-text/60 flex items-center gap-1.5">
+                  <span>Código gerado no app móvel:</span>
+                  <code className="bg-slate-200 dark:bg-brand-dark-border px-1.5 py-0.5 rounded text-primary dark:text-secondary-light font-mono font-bold">
+                    {selectedPatient.otpToken}
+                  </code>
                 </div>
               </div>
             </div>
@@ -233,17 +283,25 @@ export default function PatientRequestPanel({
           <div className="flex justify-end pt-2">
             <button
               type="submit"
-              className={`px-6 py-2 rounded-lg text-sm font-semibold text-white shadow-md hover:shadow-lg transition-all ${
+              disabled={isSubmitting}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm hover:shadow transition-all cursor-pointer ${
                 authMethod === "break_the_glass"
                   ? "bg-red-600 hover:bg-red-700"
                   : "bg-primary hover:bg-primary-dark"
               }`}
             >
-              Requisitar Dados Clínicos
+              {isSubmitting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Descriptografando Prontuário...</span>
+                </>
+              ) : (
+                <span>Requisitar Dados Clínicos</span>
+              )}
             </button>
           </div>
         </form>
-      </div>
+      )}
     </div>
   );
 }

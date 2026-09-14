@@ -8,6 +8,7 @@ import {
   AuditLog,
   AuthorizedHistory,
   mockPatients,
+  mockDemoRoles,
   initialAuditLogs,
   generateHL7FHIRBundle,
 } from "./mockData";
@@ -20,10 +21,16 @@ import PatientRequestPanel from "../components/PatientRequestPanel";
 import ClinicalDataDisplay from "../components/ClinicalDataDisplay";
 import AuditLogsTable from "../components/AuditLogsTable";
 import PrintPreviewModal from "../components/PrintPreviewModal";
+import QuickAccessModal from "../components/QuickAccessModal";
+
+import { isDemoMode, setDemoMode, searchPatientsApi } from "../services/api";
 
 export default function MediatorPage() {
   // Theme State
   const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  // Mode State (Mock Demonstration vs Live Go API)
+  const [isDemo, setIsDemo] = useState(true);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<ClinicUser | null>(null);
@@ -37,14 +44,17 @@ export default function MediatorPage() {
   // Authorized Patient History View
   const [authorizedHistory, setAuthorizedHistory] = useState<AuthorizedHistory | null>(null);
 
-  // PDF / Document Print Preview Modal State
+  // Modals
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [showQuickAccess, setShowQuickAccess] = useState(false);
 
   // Audit Logs State
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(initialAuditLogs);
 
-  // Load theme and session on mount
+  // Load theme, demo mode and session on mount
   useEffect(() => {
+    setIsDemo(isDemoMode());
+
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     const resolvedTheme = savedTheme || systemTheme;
@@ -58,10 +68,26 @@ export default function MediatorPage() {
     const savedToken = localStorage.getItem("centralizador_token");
     if (savedUser && savedClinic && savedToken) {
       setTimeout(() => {
-        setCurrentUser(JSON.parse(savedUser));
-        setCurrentClinic(JSON.parse(savedClinic));
+        try {
+          setCurrentUser(JSON.parse(savedUser));
+          setCurrentClinic(JSON.parse(savedClinic));
+        } catch {
+          setCurrentUser(mockDemoRoles[0].user);
+          setCurrentClinic(mockDemoRoles[0].clinic);
+        }
+      }, 0);
+    } else {
+      // Default to Dr. Roberto Silva demo session for instant inspection
+      setTimeout(() => {
+        setCurrentUser(mockDemoRoles[0].user);
+        setCurrentClinic(mockDemoRoles[0].clinic);
       }, 0);
     }
+
+    // Default select first patient (Maria Oliveira Souza) for quick review
+    setTimeout(() => {
+      setSelectedPatient(mockPatients[0]);
+    }, 0);
   }, []);
 
   // Sync theme with document class
@@ -88,12 +114,20 @@ export default function MediatorPage() {
     setCurrentClinic(clinic);
   };
 
+  const handleRoleSwitch = (newUser: ClinicUser, newClinic: Clinic) => {
+    setCurrentUser(newUser);
+    setCurrentClinic(newClinic);
+    localStorage.setItem("centralizador_user", JSON.stringify(newUser));
+    localStorage.setItem("centralizador_clinic", JSON.stringify(newClinic));
+  };
+
   const handleLogout = () => {
     setCurrentUser(null);
     setCurrentClinic(null);
     setSelectedPatient(null);
     setAuthorizedHistory(null);
     setShowPrintPreview(false);
+    setShowQuickAccess(false);
     setSearchQuery("");
     setSearchResults([]);
     localStorage.removeItem("centralizador_token");
@@ -101,26 +135,39 @@ export default function MediatorPage() {
     localStorage.removeItem("centralizador_clinic");
   };
 
-  // Perform search query locally using mock data
-  const performSearch = (query: string) => {
+  const handleToggleDemo = () => {
+    const next = !isDemo;
+    setIsDemo(next);
+    setDemoMode(next);
+  };
+
+  // Perform search query via API or mock depending on active mode
+  const performSearch = async (query: string) => {
     setAuthorizedHistory(null);
     if (!query.trim()) {
       setSearchResults([]);
       return;
     }
 
-    const lowerQuery = query.toLowerCase().trim();
-    const results = mockPatients.filter(
-      (p) =>
-        p.name.toLowerCase().includes(lowerQuery) ||
-        p.cpf.includes(lowerQuery.replace(/\D/g, ""))
-    );
-    
-    setSearchResults(results);
-    if (results.length > 0) {
-      setSelectedPatient(results[0]);
-    } else {
-      setSelectedPatient(null);
+    try {
+      const token = localStorage.getItem("centralizador_token") || "";
+      const results = await searchPatientsApi(query, token);
+      setSearchResults(results);
+      if (results.length > 0) {
+        setSelectedPatient(results[0]);
+      } else {
+        setSelectedPatient(null);
+      }
+    } catch {
+      // Fallback gracioso para dados mockados em caso de falha de conexão com a API
+      const lowerQuery = query.toLowerCase().trim();
+      const results = mockPatients.filter(
+        (p) =>
+          p.name.toLowerCase().includes(lowerQuery) ||
+          p.cpf.includes(lowerQuery.replace(/\D/g, ""))
+      );
+      setSearchResults(results);
+      setSelectedPatient(results.length > 0 ? results[0] : null);
     }
   };
 
@@ -144,6 +191,34 @@ export default function MediatorPage() {
   const handleAuthorizationSuccess = (history: AuthorizedHistory, newLog: AuditLog) => {
     setAuthorizedHistory(history);
     setAuditLogs((prev) => [newLog, ...prev]);
+  };
+
+  const handleQuickAccessPatient = (patient: Patient, token: string) => {
+    setSelectedPatient(patient);
+    const hl7Str = generateHL7FHIRBundle(patient);
+    const timestamp = new Date().toISOString();
+    
+    const newHistory: AuthorizedHistory = {
+      patient,
+      method: "token",
+      requesterName: currentUser?.name || "Recepção / Triagem",
+      requesterRole: currentUser?.role || "Atendimento",
+      hl7Bundle: hl7Str,
+      timestamp,
+    };
+
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}`,
+      clinicName: currentClinic?.name || "Clínica",
+      requesterEmail: currentUser?.email || "recepcao@vida.com.br",
+      patientName: patient.name,
+      authMethod: "token",
+      requestType: currentClinic?.type === "partner" ? "hl7_download" : "direct",
+      timestamp,
+      requesterRole: currentUser?.role,
+    };
+
+    handleAuthorizationSuccess(newHistory, newLog);
   };
 
   const handleDownloadHL7 = () => {
@@ -209,16 +284,20 @@ export default function MediatorPage() {
           currentClinic={currentClinic}
           theme={theme}
           setTheme={setTheme}
+          isDemo={isDemo}
+          onToggleDemo={handleToggleDemo}
+          onRoleSwitch={handleRoleSwitch}
+          onOpenQuickAccess={() => setShowQuickAccess(true)}
           onLogout={handleLogout}
         />
 
-        {/* Main Workspace Layout */}
-        <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+        {/* Main Workspace Layout - Widescreen Layout (Expanded X Axis) */}
+        <main className="flex-1 w-full max-w-[1720px] mx-auto p-4 sm:p-8 space-y-6">
           
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
-            {/* Left Column: Search & Patient Database (Sandbox) */}
-            <div className="lg:col-span-1 space-y-6 min-w-0">
+            {/* Left Column: Search & Patient Database (Sandbox) - 25% on wide screens */}
+            <div className="lg:col-span-4 xl:col-span-3 space-y-6 min-w-0">
               
               <PatientSearch
                 searchQuery={searchQuery}
@@ -240,19 +319,23 @@ export default function MediatorPage() {
               />
             </div>
 
-            {/* Right/Middle Column: Request Panel & Data Display */}
-            <div className="lg:col-span-2 space-y-6 min-w-0">
+            {/* Right/Middle Column: Request Panel & Data Display - 75% on wide screens */}
+            <div className="lg:col-span-8 xl:col-span-9 space-y-6 min-w-0">
               
               <PatientRequestPanel
                 selectedPatient={selectedPatient}
                 currentClinic={currentClinic}
                 currentUser={currentUser}
+                authorizedHistory={authorizedHistory}
                 onAuthorizationSuccess={handleAuthorizationSuccess}
+                onRevokeAccess={() => setAuthorizedHistory(null)}
               />
 
               <ClinicalDataDisplay
                 authorizedHistory={authorizedHistory}
                 currentClinic={currentClinic}
+                currentUser={currentUser}
+                auditLogs={auditLogs}
                 onShowPrintPreview={() => setShowPrintPreview(true)}
                 onDownloadHL7={handleDownloadHL7}
               />
@@ -262,7 +345,9 @@ export default function MediatorPage() {
           {/* Lower Full Width Section: Filtered Audit Log */}
           <AuditLogsTable
             filteredAuditLogs={filteredAuditLogs}
+            allAuditLogs={auditLogs}
             currentClinic={currentClinic}
+            currentUser={currentUser}
           />
         </main>
       </div>
@@ -275,6 +360,14 @@ export default function MediatorPage() {
         currentClinic={currentClinic}
         currentUser={currentUser}
       />
+
+      {/* Quick Access OTP Modal (Recepção) */}
+      {showQuickAccess && (
+        <QuickAccessModal
+          onClose={() => setShowQuickAccess(false)}
+          onSelectPatient={handleQuickAccessPatient}
+        />
+      )}
     </div>
   );
 }

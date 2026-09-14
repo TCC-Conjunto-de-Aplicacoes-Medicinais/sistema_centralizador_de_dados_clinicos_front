@@ -1,34 +1,85 @@
 "use client";
 
-import { Clinic, AuditLog } from "../app/mockData";
+import { useState } from "react";
+import { Clinic, ClinicUser, AuditLog } from "../app/mockData";
 
 interface AuditLogsTableProps {
   filteredAuditLogs: AuditLog[];
+  allAuditLogs?: AuditLog[];
   currentClinic: Clinic;
+  currentUser?: ClinicUser;
 }
 
 export default function AuditLogsTable({
   filteredAuditLogs,
+  allAuditLogs = [],
   currentClinic,
+  currentUser,
 }: AuditLogsTableProps) {
+  const isAuditor = currentUser?.systemRole === "network_auditor";
+  const [viewMode, setViewMode] = useState<"clinic" | "network">(isAuditor ? "network" : "clinic");
+
+  const displayLogs = viewMode === "network" && isAuditor ? allAuditLogs : filteredAuditLogs;
+
   return (
     <div className="bg-brand-paper dark:bg-brand-dark-paper border border-brand-border dark:border-brand-dark-border rounded-xl p-5 shadow-sm space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-brand-text dark:text-brand-dark-text flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-primary dark:text-secondary-light">
             <path fillRule="evenodd" d="M10 2a8 8 0 100 16 8 8 0 000-16zm.75 4.75a.75.75 0 00-1.5 0v5.25H6.5a.75.75 0 000 1.5h5a.75.75 0 00.75-.75V6.75z" clipRule="evenodd" />
           </svg>
-          Logs de Auditoria de Acesso ({currentClinic.name})
-        </h2>
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 px-2 py-0.5 rounded border border-red-200 dark:border-red-900/40">
-          Isolado por Clínica (Segurança)
-        </span>
+          <div>
+            <h2 className="text-lg font-bold text-brand-text dark:text-brand-dark-text">
+              Logs de Auditoria & Conformidade LGPD {viewMode === "network" ? "(Rede Nacional POHINC)" : `(${currentClinic.name})`}
+            </h2>
+            <p className="text-[11px] text-brand-text/60 dark:text-brand-dark-text/60">
+              Trilha imutável de transações de custódia e quebra de sigilo registrada no barramento
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isAuditor && (
+            <div className="flex items-center bg-brand-bg dark:bg-brand-dark-bg p-1 rounded-lg border border-brand-border dark:border-brand-dark-border text-xs">
+              <button
+                onClick={() => setViewMode("network")}
+                className={`px-2.5 py-1 rounded font-bold cursor-pointer transition ${
+                  viewMode === "network"
+                    ? "bg-purple-600 text-white shadow-xs"
+                    : "text-brand-text/60 hover:text-brand-text"
+                }`}
+              >
+                🌐 Toda a Rede ({allAuditLogs.length})
+              </button>
+              <button
+                onClick={() => setViewMode("clinic")}
+                className={`px-2.5 py-1 rounded font-bold cursor-pointer transition ${
+                  viewMode === "clinic"
+                    ? "bg-primary text-white shadow-xs"
+                    : "text-brand-text/60 hover:text-brand-text"
+                }`}
+              >
+                🏥 Minha Clínica ({filteredAuditLogs.length})
+              </button>
+            </div>
+          )}
+
+          <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+            viewMode === "network"
+              ? "bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
+              : "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+          }`}>
+            {viewMode === "network" ? "🛡️ Visão de Auditoria Global" : "🔒 Isolado por Instituição"}
+          </span>
+        </div>
       </div>
       <p className="text-xs text-brand-text/60 dark:text-brand-dark-text/60">
-        Conforme regras de conformidade e privacidade médica, você está visualizando estritamente as ações de requisição originadas pela sua clínica (<strong className="text-brand-text dark:text-brand-dark-text">{currentClinic.name}</strong>). Logs de outras instituições estão ocultos.
+        {viewMode === "network"
+          ? "Como Auditor Geral / DPO da Rede POHINC, você possui permissão para inspecionar auditorias de todas as clínicas conveniadas e monitorar anomalias de segurança em tempo real."
+          : `Conforme regras de conformidade e privacidade médica, você está visualizando estritamente as ações de requisição originadas pela sua clínica (${currentClinic.name}). Logs de outras instituições estão ocultos.`}
       </p>
 
-      {filteredAuditLogs.length > 0 ? (
+      {displayLogs.length > 0 ? (
         <div className="w-full">
           {/* Desktop View */}
           <div className="hidden md:block overflow-x-auto">
@@ -36,17 +87,25 @@ export default function AuditLogsTable({
               <thead className="bg-brand-bg dark:bg-brand-dark-bg font-bold text-brand-text/70 dark:text-brand-dark-text/70 uppercase tracking-wider text-[9px]">
                 <tr>
                   <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Data/Hora</th>
+                  {viewMode === "network" && (
+                    <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Clínica Origem</th>
+                  )}
                   <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Operador (E-mail)</th>
                   <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Paciente</th>
                   <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Tipo</th>
                   <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Autorização</th>
-                  <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Justificativa / Motivo de Acesso Crítico</th>
+                  <th className="p-2.5 border-b border-brand-border dark:border-brand-dark-border">Justificativa / Motivo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-brand-border dark:divide-brand-dark-border">
-                {filteredAuditLogs.map((log) => (
+                {displayLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-brand-bg/25 dark:hover:bg-brand-dark-bg/25 text-brand-text dark:text-brand-dark-text transition">
                     <td className="p-2.5 whitespace-nowrap">{new Date(log.timestamp).toLocaleString("pt-BR")}</td>
+                    {viewMode === "network" && (
+                      <td className="p-2.5 font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        {log.clinicName}
+                      </td>
+                    )}
                     <td className="p-2.5 font-mono">{log.requesterEmail}</td>
                     <td className="p-2.5 font-semibold">{log.patientName}</td>
                     <td className="p-2.5">
@@ -84,7 +143,7 @@ export default function AuditLogsTable({
 
           {/* Mobile Cards View */}
           <div className="block md:hidden space-y-3">
-            {filteredAuditLogs.map((log) => (
+            {displayLogs.map((log) => (
               <div key={log.id} className="p-4 rounded-lg border border-brand-border dark:border-brand-dark-border bg-brand-bg/25 dark:bg-brand-dark-bg/25 space-y-2 text-xs">
                 <div className="flex justify-between items-start gap-2">
                   <span className="text-[10px] font-mono text-brand-text/50 dark:text-brand-dark-text/50">
