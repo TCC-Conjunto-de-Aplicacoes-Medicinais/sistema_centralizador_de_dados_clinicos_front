@@ -99,7 +99,7 @@ export default function ClinicalDataDisplay({
       <div className="flex border-b border-brand-border dark:border-brand-dark-border gap-1 sm:gap-2 overflow-x-auto text-xs font-bold">
         {[
           { id: "summary", label: "📋 Resumo Clínico & Alertas", icon: "🩺" },
-          { id: "ecg", label: "⚡ Eletrocardiograma & Laudos", icon: "📊" },
+          { id: "ecg", label: "📑 Exames & Laudos Clínicos", icon: "📑" },
           { id: "timeline", label: "⏱️ Linha do Tempo Unificada", icon: "🏥" },
           { id: "fhir", label: "🌐 Interoperabilidade FHIR R4", icon: "🔗" },
           { id: "audit", label: `🛡️ Auditoria LGPD (${patientAuditLogs.length})`, icon: "⚖️" },
@@ -191,50 +191,53 @@ export default function ClinicalDataDisplay({
         </div>
       )}
 
-      {/* ─── ABA 2: ELETROCARDIOGRAMA & EXAMES ─── */}
+      {/* ─── ABA 2: EXAMES & LAUDOS CLÍNICOS (SEM ELETRO CRAVADO) ─── */}
       {activeTab === "ecg" && (
         <div className="space-y-6 animate-fadeIn">
-          {/* Se houver registro de ECG detalhado, exibe o componente interativo */}
-          {currentECG ? (
-            <ECGWaveformViewer
-              ecgRecord={currentECG}
-              onOpenComparator={() => setComparatorOpen(true)}
-            />
-          ) : (
-            <div className="p-8 text-center border border-dashed border-brand-border rounded-xl text-xs text-brand-text/50">
-              Nenhum traçado eletrocardiográfico vetorial anexado a este paciente.
-            </div>
-          )}
-
           {/* Lista Completa de Laudos e Exames Complementares */}
           <div className="space-y-3">
-            <h3 className="text-xs font-bold text-brand-text dark:text-brand-dark-text uppercase tracking-wider">
-              Histórico Completo de Laudos e Exames Complementares
-            </h3>
-            <div className="overflow-x-auto border border-brand-border dark:border-brand-dark-border rounded-xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-brand-bg dark:bg-brand-dark-bg font-bold text-brand-text/70 dark:text-brand-dark-text/70 uppercase text-[10px]">
-                  <tr>
-                    <th className="p-3">Exame / Procedimento</th>
-                    <th className="p-3">Data</th>
-                    <th className="p-3">Prestador / Laboratório</th>
-                    <th className="p-3">Conclusão Médica / Laudo</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-brand-border dark:divide-brand-dark-border text-brand-text dark:text-brand-dark-text">
-                  {patient.exams.map((ex) => (
-                    <tr key={ex.id} className="hover:bg-brand-bg/30 dark:hover:bg-brand-dark-bg/30 transition">
-                      <td className="p-3 font-semibold flex items-center gap-2">
-                        {ex.type === "cardiology" ? "⚡" : "🧪"} {ex.title}
-                      </td>
-                      <td className="p-3 whitespace-nowrap">{ex.date}</td>
-                      <td className="p-3">{ex.provider}</td>
-                      <td className="p-3 max-w-md italic">{ex.result}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-brand-text dark:text-brand-dark-text uppercase tracking-wider flex items-center gap-2">
+                <span>Histórico Completo de Laudos e Exames Complementares</span>
+                <span className="bg-primary/10 text-primary dark:text-secondary-light text-[10px] px-2 py-0.5 rounded-full font-bold">
+                  {patient.exams.length} {patient.exams.length === 1 ? "registro" : "registros"}
+                </span>
+              </h3>
             </div>
+
+            {patient.exams.length === 0 ? (
+              <div className="p-8 text-center border border-dashed border-brand-border dark:border-brand-dark-border rounded-xl text-xs text-brand-text/50">
+                Nenhum exame ou laudo complementar anexado a este paciente.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-brand-border dark:border-brand-dark-border rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-brand-bg dark:bg-brand-dark-bg font-bold text-brand-text/70 dark:text-brand-dark-text/70 uppercase text-[10px]">
+                    <tr>
+                      <th className="p-3">Exame / Procedimento</th>
+                      <th className="p-3">Data</th>
+                      <th className="p-3">Prestador / Clínica</th>
+                      <th className="p-3">Conclusão Médica / Laudo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-brand-border dark:divide-brand-dark-border text-brand-text dark:text-brand-dark-text">
+                    {patient.exams.map((ex) => (
+                      <tr key={ex.id} className="hover:bg-brand-bg/30 dark:hover:bg-brand-dark-bg/30 transition">
+                        <td className="p-3 font-semibold flex items-center gap-2">
+                          <span className="p-1.5 rounded-md bg-primary/10 text-primary dark:text-secondary-light">
+                            {ex.type === "cardiology" ? "⚡" : "📑"}
+                          </span>
+                          <span>{ex.title}</span>
+                        </td>
+                        <td className="p-3 whitespace-nowrap font-mono text-[11px]">{ex.date}</td>
+                        <td className="p-3 font-medium text-brand-text/80">{ex.provider}</td>
+                        <td className="p-3 max-w-md text-brand-text/90">{ex.result}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

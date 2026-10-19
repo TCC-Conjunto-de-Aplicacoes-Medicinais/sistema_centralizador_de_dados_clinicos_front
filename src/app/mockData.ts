@@ -230,10 +230,10 @@ function generateECGPoints(isAcuteInfarct: boolean, isOverload: boolean): number
 export const mockPatients: Patient[] = [
   {
     id: "pat-1",
-    name: "Maria Oliveira Souza",
-    cpf: "12345678909",
-    birthDate: "1988-04-12",
-    email: "maria.souza@gmail.com",
+    name: "Maria Santos",
+    cpf: "123.456.789-00",
+    birthDate: "1981-04-12",
+    email: "maria.santos@email.com",
     phone: "(11) 98765-4321",
     otpToken: "123456",
     allergies: ["Dipirona Monoidratada", "Poeira/Ácaros", "Penicilina G"],
@@ -386,6 +386,40 @@ export const mockPatients: Patient[] = [
         crm: "CRM/SP 98.710",
         summary: "Pico pressórico de 190x110 mmHg após estresse emocional. Controlado com medicação oral. Alta hospitalar após 12h de observação.",
         badgeColor: "amber"
+      }
+    ]
+  },
+  {
+    id: "pat-amanda",
+    name: "Amanda Silva Castro",
+    cpf: "123.456.789-99",
+    birthDate: "1988-05-15",
+    email: "amanda.silva@email.com",
+    phone: "(11) 99123-4567",
+    otpToken: "123456",
+    allergies: ["Lactose"],
+    medications: ["Dipirona Monoidratada 500mg (quando dor)"],
+    exams: [
+      {
+        id: "ex-amanda-01",
+        title: "Hemograma Completo e Bioquímica",
+        date: "2026-10-15",
+        provider: "Laboratório Central Diagnóstico",
+        result: "Hemoglobina: 13.8 g/dL, Leucócitos: 6.200/mm³, Plaquetas: 250.000/mm³. Padrão preservado.",
+        type: "laboratory"
+      }
+    ],
+    timeline: [
+      {
+        id: "time-amanda-1",
+        date: "2026-10-18 19:20",
+        institution: "Clínica Integrada POHINC",
+        type: "consultation",
+        title: "Consulta Médica e Cadastramento",
+        doctorName: "Dr. Responsável",
+        crm: "CRM/SP 123456",
+        summary: "Paciente cadastrada no ecossistema de saúde federado Open Health.",
+        badgeColor: "emerald"
       }
     ]
   },

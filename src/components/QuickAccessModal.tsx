@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { mockPatients, Patient } from "../app/mockData";
+import { validateTokenApi } from "../services/api";
 
 interface QuickAccessModalProps {
   onClose: () => void;
@@ -17,7 +18,7 @@ export default function QuickAccessModal({
   const [isLoading, setIsLoading] = useState(false);
   const [successPatient, setSuccessPatient] = useState<string | null>(null);
 
-  const handleValidate = (e: React.FormEvent) => {
+  const handleValidate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -27,19 +28,30 @@ export default function QuickAccessModal({
       return;
     }
 
-    // Busca paciente que possua esse token
+    setIsLoading(true);
+    // Validação real via MariaDB no backend Centralizador
+    const remotePatient = await validateTokenApi(cleanToken);
+    if (remotePatient) {
+      setIsLoading(false);
+      setSuccessPatient(remotePatient.name);
+      setTimeout(() => {
+        onSelectPatient(remotePatient, cleanToken);
+        onClose();
+      }, 700);
+      return;
+    }
+
+    // Fallback: Busca paciente em mockPatients que possua esse token
     const found = mockPatients.find((p) => p.otpToken === cleanToken);
     if (found) {
-      setIsLoading(true);
+      setIsLoading(false);
+      setSuccessPatient(found.name);
       setTimeout(() => {
-        setIsLoading(false);
-        setSuccessPatient(found.name);
-        setTimeout(() => {
-          onSelectPatient(found, cleanToken);
-          onClose();
-        }, 700);
-      }, 800);
+        onSelectPatient(found, cleanToken);
+        onClose();
+      }, 700);
     } else {
+      setIsLoading(false);
       setError("Código de acesso temporário não encontrado ou já expirado.");
     }
   };

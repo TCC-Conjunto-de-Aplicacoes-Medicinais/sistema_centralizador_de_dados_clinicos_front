@@ -23,14 +23,14 @@ import AuditLogsTable from "../components/AuditLogsTable";
 import PrintPreviewModal from "../components/PrintPreviewModal";
 import QuickAccessModal from "../components/QuickAccessModal";
 
-import { isDemoMode, setDemoMode, searchPatientsApi } from "../services/api";
+import { isDemoMode, setDemoMode, searchPatientsApi, getAuditLogsApi } from "../services/api";
 
 export default function MediatorPage() {
   // Theme State
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   // Mode State (Mock Demonstration vs Live Go API)
-  const [isDemo, setIsDemo] = useState(true);
+  const [isDemo, setIsDemo] = useState(false);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<ClinicUser | null>(null);
@@ -84,10 +84,17 @@ export default function MediatorPage() {
       }, 0);
     }
 
-    // Default select first patient (Maria Oliveira Souza) for quick review
+    // Default select first patient (Maria Santos) for quick review
     setTimeout(() => {
       setSelectedPatient(mockPatients[0]);
     }, 0);
+
+    // Fetch real audit logs from Centralizer Backend
+    getAuditLogsApi().then((logs) => {
+      if (logs && logs.length > 0) {
+        setAuditLogs(logs);
+      }
+    });
   }, []);
 
   // Sync theme with document class
@@ -195,30 +202,81 @@ export default function MediatorPage() {
 
   const handleQuickAccessPatient = (patient: Patient, token: string) => {
     setSelectedPatient(patient);
-    const hl7Str = generateHL7FHIRBundle(patient);
-    const timestamp = new Date().toISOString();
-    
-    const newHistory: AuthorizedHistory = {
-      patient,
-      method: "token",
-      requesterName: currentUser?.name || "Recepção / Triagem",
-      requesterRole: currentUser?.role || "Atendimento",
-      hl7Bundle: hl7Str,
-      timestamp,
-    };
+    const rawId = patient.id.replace(/^pat-/, "");
 
-    const newLog: AuditLog = {
-      id: `log-${Date.now()}`,
-      clinicName: currentClinic?.name || "Clínica",
-      requesterEmail: currentUser?.email || "recepcao@vida.com.br",
-      patientName: patient.name,
-      authMethod: "token",
-      requestType: currentClinic?.type === "partner" ? "hl7_download" : "direct",
-      timestamp,
-      requesterRole: currentUser?.role,
-    };
+    fetch(`http://localhost:8002/api/patients/${rawId}/timeline`)
+      .then((res) => res.json())
+      .then((timelineData) => {
+        let realExams = [...(patient.exams || [])];
+        if (timelineData && Array.isArray(timelineData.records) && timelineData.records.length > 0) {
+          realExams = timelineData.records.map((r: any) => ({
+            id: r.record_id || `rec-${Date.now()}`,
+            title: r.title || "Laudo Clínico",
+            date: r.exam_timestamp ? r.exam_timestamp.substring(0, 10) : new Date().toISOString().substring(0, 10),
+            provider: r.clinic_name || "Clínica Integrada",
+            result: r.conclusion || "Registro clínico consolidado via barramento Open Health.",
+            type: (r.title || "").toLowerCase().includes("ecg") || (r.title || "").toLowerCase().includes("cardio") ? "cardiology" : "lab",
+          }));
+        }
 
-    handleAuthorizationSuccess(newHistory, newLog);
+        const patientWithRealExams: Patient = {
+          ...patient,
+          allergies: patient.allergies?.length ? patient.allergies : ["Dipirona Monoidratada", "Penicilina G", "Poeira/Ácaros"],
+          medications: patient.medications?.length ? patient.medications : [
+            "Losartana Potássica 50mg (1 comp. 12/12h — Prescrito por Clínica Vida Saudável)",
+            "Espironolactona 25mg (1 comp. manhã — Prescrito por Hospital São Lucas)",
+          ],
+          exams: realExams,
+        };
+
+        const hl7Str = generateHL7FHIRBundle(patientWithRealExams);
+        const timestamp = new Date().toISOString();
+
+        const newHistory: AuthorizedHistory = {
+          patient: patientWithRealExams,
+          method: "token",
+          requesterName: currentUser?.name || "Recepção / Triagem",
+          requesterRole: currentUser?.role || "Atendimento",
+          hl7Bundle: hl7Str,
+          timestamp,
+        };
+
+        const newLog: AuditLog = {
+          id: `log-${Date.now()}`,
+          clinicName: currentClinic?.name || "Clínica",
+          requesterEmail: currentUser?.email || "recepcao@vida.com.br",
+          patientName: patient.name,
+          authMethod: "token",
+          requestType: currentClinic?.type === "partner" ? "hl7_download" : "direct",
+          timestamp,
+          requesterRole: currentUser?.role,
+        };
+
+        handleAuthorizationSuccess(newHistory, newLog);
+      })
+      .catch(() => {
+        const hl7Str = generateHL7FHIRBundle(patient);
+        const timestamp = new Date().toISOString();
+        const newHistory: AuthorizedHistory = {
+          patient,
+          method: "token",
+          requesterName: currentUser?.name || "Recepção / Triagem",
+          requesterRole: currentUser?.role || "Atendimento",
+          hl7Bundle: hl7Str,
+          timestamp,
+        };
+        const newLog: AuditLog = {
+          id: `log-${Date.now()}`,
+          clinicName: currentClinic?.name || "Clínica",
+          requesterEmail: currentUser?.email || "recepcao@vida.com.br",
+          patientName: patient.name,
+          authMethod: "token",
+          requestType: currentClinic?.type === "partner" ? "hl7_download" : "direct",
+          timestamp,
+          requesterRole: currentUser?.role,
+        };
+        handleAuthorizationSuccess(newHistory, newLog);
+      });
   };
 
   const handleDownloadHL7 = () => {
