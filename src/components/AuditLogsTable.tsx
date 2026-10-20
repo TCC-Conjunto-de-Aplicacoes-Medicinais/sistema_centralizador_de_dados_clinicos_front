@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Clinic, ClinicUser, AuditLog } from "../app/mockData";
+import { Clinic, ClinicUser, AuditLog } from "../types/clinical";
 
 interface AuditLogsTableProps {
   filteredAuditLogs: AuditLog[];
@@ -123,7 +123,7 @@ export default function AuditLogsTable({
                           ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
                           : "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 font-extrabold animate-pulse"
                       }`}>
-                        {log.authMethod === "token" ? "OTP Código" : "Break The Glass"}
+                        {log.authMethod === "consent" ? "Consentimento" : log.authMethod === "token" ? "OTP Código" : "Break The Glass"}
                       </span>
                     </td>
                     <td className="p-2.5 max-w-xs text-brand-text/75 dark:text-brand-dark-text/75 italic">
@@ -162,7 +162,7 @@ export default function AuditLogsTable({
                         ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
                         : "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 font-extrabold"
                     }`}>
-                      {log.authMethod === "token" ? "OTP" : "Break Glass"}
+                      {log.authMethod === "consent" ? "Consent." : log.authMethod === "token" ? "OTP" : "Break Glass"}
                     </span>
                   </div>
                 </div>

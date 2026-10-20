@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { TimelineEvent } from "../app/mockData";
+import { TimelineEvent } from "../types/clinical";
 
 interface ClinicalTimelineProps {
   events?: TimelineEvent[];

@@ -1,6 +1,7 @@
 "use client";
 
-import { Clinic, ClinicUser, AuthorizedHistory } from "../app/mockData";
+import { formatBirthDate } from "../services/format";
+import { Clinic, ClinicUser, AuthorizedHistory } from "../types/clinical";
 
 interface ClinicalDocumentSheetProps {
   history: AuthorizedHistory | null;
@@ -91,7 +92,7 @@ export default function ClinicalDocumentSheet({
           </div>
           <div>
             <p className="text-slate-500 font-medium">Data de Nascimento</p>
-            <p className="font-bold text-slate-800 text-sm mt-0.5">{new Date(patient.birthDate).toLocaleDateString("pt-BR")} ({age} anos)</p>
+            <p className="font-bold text-slate-800 text-sm mt-0.5">{formatBirthDate(patient.birthDate)} ({age} anos)</p>
           </div>
           <div>
             <p className="text-slate-500 font-medium">Celular / Contato</p>

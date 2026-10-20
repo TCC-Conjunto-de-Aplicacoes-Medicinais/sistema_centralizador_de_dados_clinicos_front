@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { DrugInteraction } from "../app/mockData";
+import { DrugInteraction } from "../types/clinical";
 
 interface DrugInteractionAlertProps {
   interactions?: DrugInteraction[];

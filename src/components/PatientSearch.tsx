@@ -1,6 +1,7 @@
 "use client";
 
-import { Patient } from "../app/mockData";
+import { formatBirthDate } from "../services/format";
+import { Patient } from "../types/clinical";
 
 interface PatientSearchProps {
   searchQuery: string;
@@ -79,7 +80,7 @@ export default function PatientSearch({
                 <p className="text-xs font-bold">{patient.name}</p>
                 <div className="flex items-center justify-between mt-0.5 text-[10px] text-brand-text/60 dark:text-brand-dark-text/60">
                   <span>CPF: {patient.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")}</span>
-                  <span>Nasc: {new Date(patient.birthDate).toLocaleDateString("pt-BR")}</span>
+                  <span>Nasc: {formatBirthDate(patient.birthDate)}</span>
                 </div>
               </button>
             ))}

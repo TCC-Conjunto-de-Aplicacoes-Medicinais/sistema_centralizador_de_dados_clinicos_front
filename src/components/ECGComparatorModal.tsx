@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ECGRecord } from "../app/mockData";
+import { ECGRecord } from "../types/clinical";
 
 interface ECGComparatorModalProps {
   currentECG: ECGRecord;
