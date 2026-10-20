@@ -1,8 +1,9 @@
 import type { AuditLog, AuthorizedHistory, Clinic, ClinicUser, Exam, Patient } from "../types/clinical";
 
-/** URL do centralizador (back). Em produção, defina NEXT_PUBLIC_API_URL no build. */
+/** URL do centralizador (back). O build de produção aponta para a API online; em dev, o back local. */
 export function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+  const fallback = process.env.NODE_ENV === "production" ? "https://api.pohinc.com.br" : "http://localhost:8002";
+  return process.env.NEXT_PUBLIC_API_URL || fallback;
 }
 
 function authHeaders(token: string): Record<string, string> {
