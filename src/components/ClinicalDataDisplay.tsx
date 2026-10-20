@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Clinic, ClinicUser, AuthorizedHistory, AuditLog } from "../app/mockData";
-import ECGWaveformViewer from "./ECGWaveformViewer";
+import { Clinic, ClinicUser, AuthorizedHistory, AuditLog } from "../types/clinical";
 import ECGComparatorModal from "./ECGComparatorModal";
 import DrugInteractionAlert from "./DrugInteractionAlert";
 import ClinicalTimeline from "./ClinicalTimeline";
@@ -19,7 +18,6 @@ interface ClinicalDataDisplayProps {
 
 export default function ClinicalDataDisplay({
   authorizedHistory,
-  currentClinic,
   currentUser,
   auditLogs = [],
   onShowPrintPreview,
@@ -59,7 +57,7 @@ export default function ClinicalDataDisplay({
                   ? "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-400 border border-red-200 dark:border-red-900"
                   : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
               }`}>
-                {authorizedHistory.method === "break_the_glass" ? "🚨 Acesso Crítico (Break the Glass)" : "✓ Autorizado via OTP / DPoP"}
+                {authorizedHistory.method === "break_the_glass" ? "🚨 Acesso Crítico (Break the Glass)" : "✓ Autorizado via consentimento do paciente"}
               </span>
             </div>
             <p className="text-xs text-brand-text/60 dark:text-brand-dark-text/60 mt-0.5">
@@ -106,7 +104,7 @@ export default function ClinicalDataDisplay({
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id as typeof activeTab)}
             className={`pb-2.5 px-3 py-1.5 border-b-2 transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
               activeTab === tab.id
                 ? "border-primary text-primary dark:text-secondary-light font-extrabold"
@@ -314,7 +312,7 @@ export default function ClinicalDataDisplay({
                           ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
                           : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
                       }`}>
-                        {log.authMethod === "break_the_glass" ? "🚨 Break the Glass" : "✓ OTP / DPoP"}
+                        {log.authMethod === "break_the_glass" ? "🚨 Break the Glass" : "✓ Consentimento"}
                       </span>
                     </td>
                     <td className="p-3 max-w-xs text-[11px]">

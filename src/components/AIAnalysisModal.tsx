@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ECGRecord } from "../app/mockData";
+import { ECGRecord } from "../types/clinical";
 
 interface AIAnalysisModalProps {
   ecgRecord: ECGRecord;

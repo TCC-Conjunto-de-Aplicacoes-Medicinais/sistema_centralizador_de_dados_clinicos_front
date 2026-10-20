@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Patient } from "../app/mockData";
+import { Patient } from "../types/clinical";
 
 interface FHIRResourceTreeProps {
   patient: Patient;
@@ -99,7 +99,7 @@ export default function FHIRResourceTree({
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
                 className={`px-3 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer ${
                   activeTab === tab.id
                     ? "bg-primary/10 dark:bg-secondary/15 text-primary-dark dark:text-secondary-light border-primary/30 dark:border-secondary/30"

@@ -1,41 +1,17 @@
-import {
-  Patient,
-  Clinic,
-  ClinicUser,
-  AuditLog,
-  AuthorizedHistory,
-  mockPatients,
-  mockClinics,
-  mockClinicUsers,
-  initialAuditLogs,
-  generateHL7FHIRBundle,
-} from "../app/mockData";
+import type { AuditLog, AuthorizedHistory, Clinic, ClinicUser, Exam, Patient } from "../types/clinical";
 
-const STORAGE_KEY_DEMO_MODE = "pohinc_demo_mode";
-const DEFAULT_API_URL = "http://localhost:8002";
-
-export function isDemoMode(): boolean {
-  if (typeof window === "undefined") return false;
-  const saved = localStorage.getItem(STORAGE_KEY_DEMO_MODE);
-  // Por padrão, conecta-se diretamente à API Go em tempo real
-  return saved === "true";
-}
-
-export function setDemoMode(enabled: boolean): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEY_DEMO_MODE, enabled ? "true" : "false");
-  }
-}
-
+/** URL do centralizador (back). Em produção, defina NEXT_PUBLIC_API_URL no build. */
 export function getApiBaseUrl(): string {
-  if (typeof window === "undefined") return DEFAULT_API_URL;
-  return localStorage.getItem("pohinc_api_url") || DEFAULT_API_URL;
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
 }
 
-export function setApiBaseUrl(url: string): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem("pohinc_api_url", url);
-  }
+function authHeaders(token: string): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function readError(res: Response, fallback: string): Promise<string> {
+  const data = await res.json().catch(() => ({}));
+  return typeof data?.error === "string" ? data.error : fallback;
 }
 
 export interface LoginResponse {
@@ -44,296 +20,153 @@ export interface LoginResponse {
   clinic: Clinic;
 }
 
-export async function loginClinic(
-  clinicCode: string,
-  email: string,
-  password: string
-): Promise<LoginResponse> {
-  if (isDemoMode()) {
-    // Simulação no modo demonstração
-    const matchedUser = mockClinicUsers.find(
-      (u) =>
-        u.clinicId.toLowerCase() === clinicCode.trim().toLowerCase() &&
-        u.email.toLowerCase() === email.trim().toLowerCase()
-    );
-
-    if (!matchedUser) {
-      throw new Error("Credenciais inválidas no modo demonstração.");
-    }
-
-    const matchedClinic =
-      mockClinics.find(
-        (c) => c.id.toLowerCase() === clinicCode.trim().toLowerCase()
-      ) || mockClinics[0];
-
-    return {
-      token: `mock-token-${matchedClinic.id}-${matchedUser.email}-${Date.now()}`,
-      user: matchedUser,
-      clinic: matchedClinic,
-    };
-  }
-
-  // Modo Produção / Conectado à API Go
-  const response = await fetch(`${getApiBaseUrl()}/api/auth/login`, {
+/** Login do usuário da clínica. O back só aceita contas com tipo_usuario=clinica. */
+export async function loginClinic(email: string, password: string): Promise<LoginResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/api/clinic/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      clinicCode: clinicCode.trim(),
-      email: email.trim(),
-      password,
-    }),
+    body: JSON.stringify({ email: email.trim(), password }),
   });
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || "Falha na autenticação com a API Go.");
+  if (!res.ok) {
+    throw new Error(await readError(res, "Não foi possível entrar. Verifique e-mail e senha."));
   }
-
-  const data = await response.json();
-  const matchedClinic =
-    mockClinics.find(
-      (c) => c.id.toLowerCase() === clinicCode.trim().toLowerCase()
-    ) || {
-      id: clinicCode.toUpperCase(),
-      name: "Clínica Conectada",
-      type: "internal",
-    };
-
+  const data = await res.json();
   return {
-    token: data.token,
+    token: data.access_token,
     user: {
-      clinicId: clinicCode.toUpperCase(),
-      email: email,
+      clinicId: data.clinic.id,
+      email: data.user.email,
       passwordHash: "",
-      name: data.user?.name || email,
-      role: data.user?.role || "Profissional Clínico",
+      name: data.user.name || data.user.email,
+      role: data.user.role || "Profissional Clínico",
       systemRole: "doctor",
     },
-    clinic: matchedClinic,
+    clinic: { id: data.clinic.id, name: data.clinic.name || "Clínica", type: "partner" },
   };
 }
 
-export async function searchPatientsApi(
-  query: string,
-  token: string
-): Promise<Patient[]> {
-  if (isDemoMode()) {
-    const lower = query.toLowerCase().trim();
-    if (!lower) return [];
-    return mockPatients.filter(
-      (p) =>
-        p.name.toLowerCase().includes(lower) ||
-        p.cpf.includes(lower.replace(/\D/g, ""))
-    );
-  }
-
-  const cleanDigits = query.replace(/\D/g, "");
-  const isCpf = cleanDigits.length >= 7 && (cleanDigits.length === query.trim().length || query.includes("-") || query.includes("."));
-  const param = isCpf ? `cpf=${encodeURIComponent(cleanDigits)}` : `name=${encodeURIComponent(query.trim())}`;
-  
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${getApiBaseUrl()}/api/patients/search?${param}`, {
-    headers,
-  });
-
-  if (!response.ok) {
-    throw new Error("Erro ao buscar pacientes na API Go.");
-  }
-
-  const data = await response.json();
-  if (!data.found) {
-    return [];
-  }
-
-  const list = Array.isArray(data.patients) && data.patients.length > 0
-    ? data.patients
-    : (data.patient ? [data.patient] : []);
-
-  return list.map((p: any) => ({
+function toPatient(p: { id: string; name: string; cpf: string; birthDate?: string }): Patient {
+  return {
     id: p.id,
     name: p.name,
     cpf: p.cpf,
-    birthDate: p.birthDate || "1990-01-01",
-    email: `${p.id}@paciente.com.br`,
-    phone: "(11) 99999-0000",
-    otpToken: "123456",
+    birthDate: p.birthDate || "",
+    email: "",
+    phone: "",
+    otpToken: "",
     allergies: [],
     medications: [],
     exams: [],
-  }));
+  };
 }
 
+/** Busca por CPF (11 dígitos) ou por nome. */
+export async function searchPatientsApi(query: string, token: string): Promise<Patient[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const digits = q.replace(/\D/g, "");
+  const isCpf = digits.length === 11 && /^[\d.\-\s]+$/.test(q);
+  const param = isCpf ? `cpf=${encodeURIComponent(digits)}` : `name=${encodeURIComponent(q)}`;
+  const res = await fetch(`${getApiBaseUrl()}/api/patients/search?${param}`, { headers: authHeaders(token) });
+  if (!res.ok) {
+    throw new Error(await readError(res, "Erro ao buscar pacientes no centralizador."));
+  }
+  const data = await res.json();
+  return (data.patients || []).map(toPatient);
+}
+
+interface FhirResource {
+  resourceType: string;
+  id?: string;
+  name?: { text?: string }[];
+  birthDate?: string;
+  code?: { text?: string };
+  effectiveDateTime?: string;
+  performer?: { display?: string }[];
+  conclusion?: string;
+}
+
+/**
+ * Solicita o histórico do paciente (bundle FHIR R4). Só sai com consentimento vigente do paciente;
+ * o back registra a tentativa, permitida ou negada, na auditoria.
+ */
 export async function requestPatientDataApi(
   patient: Patient,
-  authMethod: "token" | "break_the_glass",
-  tokenCode: string,
-  justification: string,
-  currentUser: ClinicUser,
-  currentClinic: Clinic,
-  token: string
+  token: string,
+  requester: { name: string; email: string; role: string },
+  clinic: Clinic
 ): Promise<{ history: AuthorizedHistory; log: AuditLog }> {
+  const res = await fetch(`${getApiBaseUrl()}/api/patients/${encodeURIComponent(patient.id)}/fhir-bundle`, {
+    headers: authHeaders(token),
+  });
+  if (res.status === 403) {
+    throw new Error("O paciente não autorizou o compartilhamento do histórico (consentimento ausente ou revogado).");
+  }
+  if (!res.ok) {
+    throw new Error(await readError(res, "Não foi possível obter o histórico do paciente."));
+  }
+
+  const bundle = await res.json();
+  const resources: FhirResource[] = (bundle.entry || []).map((e: { resource: FhirResource }) => e.resource);
+  const pr = resources.find((r) => r.resourceType === "Patient");
+  const exams: Exam[] = resources
+    .filter((r) => r.resourceType === "DiagnosticReport")
+    .map((r) => ({
+      id: r.id || "",
+      title: r.code?.text || "Exame",
+      date: (r.effectiveDateTime || "").slice(0, 10),
+      provider: r.performer?.[0]?.display || "Clínica",
+      result: r.conclusion || "",
+      type: "general" as const,
+    }));
+
+  const full: Patient = {
+    ...patient,
+    name: pr?.name?.[0]?.text || patient.name,
+    birthDate: pr?.birthDate || patient.birthDate,
+    exams,
+  };
   const timestamp = new Date().toISOString();
 
-  if (isDemoMode()) {
-    const hl7Str = generateHL7FHIRBundle(patient);
-    const history: AuthorizedHistory = {
-      patient,
-      method: authMethod,
-      justification: authMethod === "break_the_glass" ? justification : undefined,
-      requesterName: currentUser.name,
-      requesterRole: currentUser.role,
-      hl7Bundle: hl7Str,
+  return {
+    history: {
+      patient: full,
+      method: "consent",
+      requesterName: requester.name,
+      requesterRole: requester.role,
+      hl7Bundle: JSON.stringify(bundle, null, 2),
       timestamp,
-    };
-
-    const log: AuditLog = {
+    },
+    log: {
       id: `log-${Date.now()}`,
-      clinicName: currentClinic.name,
-      requesterEmail: currentUser.email,
-      patientName: patient.name,
-      authMethod,
-      requestType: currentClinic.type === "partner" ? "hl7_download" : "direct",
-      justification: authMethod === "break_the_glass" ? justification : undefined,
+      clinicName: clinic.name,
+      requesterEmail: requester.email,
+      patientName: full.name,
+      authMethod: "consent",
+      requestType: clinic.type === "partner" ? "hl7_download" : "direct",
       timestamp,
-      requesterRole: currentUser.role,
-    };
-
-    return { history, log };
-  }
-
-  // Chamada à API Go para autorização e resgate de prontuário
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+      requesterRole: requester.role,
+    },
   };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+}
 
-  const response = await fetch(`${getApiBaseUrl()}/api/patients/request-data`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      patientId: patient.id,
-      authMethod,
-      tokenCode,
-      justification,
-      requesterDetails: `${currentUser.name} (${currentUser.role})`,
-    }),
+/** Auditoria de acessos aos dados do paciente, como registrada no Cassandra pelo back. */
+export async function getPatientAuditApi(patientId: string, patientName: string, clinicName: string, token: string): Promise<AuditLog[]> {
+  const res = await fetch(`${getApiBaseUrl()}/api/patients/${encodeURIComponent(patientId)}/audit`, {
+    headers: authHeaders(token),
   });
-
-  if (!response.ok) {
-    const errData = await response.json().catch(() => ({}));
-    throw new Error(errData.error || "Erro ao requisitar dados do paciente na API.");
+  if (!res.ok) {
+    throw new Error(await readError(res, "Não foi possível carregar a auditoria."));
   }
-
-  const data = await response.json();
-  const remotePatient = data.patient;
-
-  // Busca em tempo real a linha do tempo cumulativa do Cassandra (Múltiplas Clínicas / Séries Temporais)
-  let cassandraExams: any[] = [];
-  try {
-    const rawId = patient.id.replace(/^pat-/, "");
-    const timeRes = await fetch(`${getApiBaseUrl()}/api/patients/${rawId}/timeline`);
-    if (timeRes.ok) {
-      const timeData = await timeRes.json();
-      if (Array.isArray(timeData.records)) {
-        cassandraExams = timeData.records.map((r: any) => ({
-          id: r.record_id,
-          title: r.title,
-          date: r.exam_timestamp ? r.exam_timestamp.substring(0, 10) : new Date().toISOString().substring(0, 10),
-          provider: r.clinic_name || "Clínica Federada",
-          result: r.conclusion || "Registro clínico consolidado.",
-          type: "cardiology"
-        }));
-      }
-    }
-  } catch (e) {
-    console.warn("Aviso ao buscar timeline do Cassandra:", e);
-  }
-
-  // Combina exames de MariaDB e do Cassandra sem duplicatas
-  const allExams = [...(remotePatient.exams || [])];
-  const seenIds = new Set(allExams.map((ex: any) => ex.id));
-  for (const cEx of cassandraExams) {
-    if (!seenIds.has(cEx.id)) {
-      seenIds.add(cEx.id);
-      allExams.push(cEx);
-    }
-  }
-
-  const enrichedPatient: Patient = {
-    ...patient,
-    allergies: remotePatient.allergies || patient.allergies,
-    medications: remotePatient.medications || patient.medications,
-    exams: allExams.length > 0 ? allExams : patient.exams,
-  };
-
-  const hl7Str = generateHL7FHIRBundle(enrichedPatient);
-  const history: AuthorizedHistory = {
-    patient: enrichedPatient,
-    method: authMethod,
-    justification,
-    requesterName: currentUser.name,
-    requesterRole: currentUser.role,
-    hl7Bundle: hl7Str,
-    timestamp,
-  };
-
-  const log: AuditLog = {
-    id: `log-${Date.now()}`,
-    clinicName: data.log?.clinicName || currentClinic.name,
-    requesterEmail: data.log?.requesterEmail || currentUser.email,
-    patientName: enrichedPatient.name,
-    authMethod,
-    requestType: data.log?.requestType || "direct",
-    justification,
-    timestamp,
-  };
-
-  return { history, log };
+  const entries: { actor: string; action: string; result: string; at: string }[] = await res.json();
+  return entries.map((e, i) => ({
+    id: `${e.at}-${e.actor}-${i}`,
+    clinicName,
+    requesterEmail: e.actor,
+    patientName,
+    authMethod: "consent",
+    requestType: "direct",
+    timestamp: e.at,
+    justification: e.result === "ok" ? undefined : `Acesso negado: ${e.result}`,
+  }));
 }
-
-export async function getAuditLogsApi(): Promise<AuditLog[]> {
-  try {
-    const res = await fetch(`${getApiBaseUrl()}/api/audit-logs`);
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        return data;
-      }
-    }
-  } catch (err) {
-    console.warn("Aviso ao consultar logs de auditoria remotos:", err);
-  }
-  return initialAuditLogs;
-}
-
-export async function validateTokenApi(token: string): Promise<Patient | null> {
-  try {
-    const res = await fetch(`${getApiBaseUrl()}/api/tokens/validate?token=${encodeURIComponent(token)}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.found && data.patient) {
-        return {
-          id: data.patient.id,
-          name: data.patient.name,
-          cpf: data.patient.cpf,
-          birthDate: data.patient.birthDate,
-          gender: "other",
-          allergies: [],
-          medications: [],
-          exams: [],
-          otpToken: data.patient.otpToken || token,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn("Aviso ao validar token remoto:", err);
-  }
-  return null;
-}
-

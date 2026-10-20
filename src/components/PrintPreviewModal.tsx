@@ -1,7 +1,7 @@
 "use client";
 
 import ClinicalDocumentSheet from "./ClinicalDocumentSheet";
-import { Clinic, ClinicUser, AuthorizedHistory } from "../app/mockData";
+import { Clinic, ClinicUser, AuthorizedHistory } from "../types/clinical";
 
 interface PrintPreviewModalProps {
   isOpen: boolean;

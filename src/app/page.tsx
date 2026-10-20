@@ -1,38 +1,23 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  Patient,
-  Clinic,
-  ClinicUser,
-  AuditLog,
-  AuthorizedHistory,
-  mockPatients,
-  mockDemoRoles,
-  initialAuditLogs,
-  generateHL7FHIRBundle,
-} from "./mockData";
+import type { Patient, Clinic, ClinicUser, AuditLog, AuthorizedHistory } from "../types/clinical";
 
 import LoginView from "../components/LoginView";
 import DashboardHeader from "../components/DashboardHeader";
 import PatientSearch from "../components/PatientSearch";
-import SandboxPatients from "../components/SandboxPatients";
 import PatientRequestPanel from "../components/PatientRequestPanel";
 import ClinicalDataDisplay from "../components/ClinicalDataDisplay";
 import AuditLogsTable from "../components/AuditLogsTable";
 import PrintPreviewModal from "../components/PrintPreviewModal";
-import QuickAccessModal from "../components/QuickAccessModal";
 
-import { isDemoMode, setDemoMode, searchPatientsApi, getAuditLogsApi } from "../services/api";
+import { searchPatientsApi, getPatientAuditApi } from "../services/api";
 
 export default function MediatorPage() {
   // Theme State
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
-  // Mode State (Mock Demonstration vs Live Go API)
-  const [isDemo, setIsDemo] = useState(false);
-
-  // Auth State
+  // Auth State (sessão guardada no navegador; o token é validado pelo back a cada chamada)
   const [currentUser, setCurrentUser] = useState<ClinicUser | null>(null);
   const [currentClinic, setCurrentClinic] = useState<Clinic | null>(null);
 
@@ -40,21 +25,19 @@ export default function MediatorPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  
-  // Authorized Patient History View
+  const [searchError, setSearchError] = useState("");
+
+  // Histórico liberado pelo consentimento do paciente
   const [authorizedHistory, setAuthorizedHistory] = useState<AuthorizedHistory | null>(null);
 
   // Modals
   const [showPrintPreview, setShowPrintPreview] = useState(false);
-  const [showQuickAccess, setShowQuickAccess] = useState(false);
 
-  // Audit Logs State
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(initialAuditLogs);
+  // Auditoria: acessos do paciente selecionado, carregados do back
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
-  // Load theme, demo mode and session on mount
+  // Load theme and session on mount
   useEffect(() => {
-    setIsDemo(isDemoMode());
-
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     const resolvedTheme = savedTheme || systemTheme;
@@ -72,29 +55,11 @@ export default function MediatorPage() {
           setCurrentUser(JSON.parse(savedUser));
           setCurrentClinic(JSON.parse(savedClinic));
         } catch {
-          setCurrentUser(mockDemoRoles[0].user);
-          setCurrentClinic(mockDemoRoles[0].clinic);
+          setCurrentUser(null);
+          setCurrentClinic(null);
         }
       }, 0);
-    } else {
-      // Default to Dr. Roberto Silva demo session for instant inspection
-      setTimeout(() => {
-        setCurrentUser(mockDemoRoles[0].user);
-        setCurrentClinic(mockDemoRoles[0].clinic);
-      }, 0);
     }
-
-    // Default select first patient (Maria Santos) for quick review
-    setTimeout(() => {
-      setSelectedPatient(mockPatients[0]);
-    }, 0);
-
-    // Fetch real audit logs from Centralizer Backend
-    getAuditLogsApi().then((logs) => {
-      if (logs && logs.length > 0) {
-        setAuditLogs(logs);
-      }
-    });
   }, []);
 
   // Sync theme with document class
@@ -107,25 +72,17 @@ export default function MediatorPage() {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // Filter audit logs: Only show logs belonging to the currently logged in clinic
-  const filteredAuditLogs = currentClinic 
-    ? auditLogs.filter(log => log.clinicName.toLowerCase() === currentClinic.name.toLowerCase())
+  // Auditoria exibida: só os acessos da clínica logada
+  const filteredAuditLogs = currentClinic
+    ? auditLogs.filter((log) => log.clinicName.toLowerCase() === currentClinic.name.toLowerCase())
     : [];
 
   const handleLoginSuccess = (user: ClinicUser, clinic: Clinic, jwtToken: string) => {
     localStorage.setItem("centralizador_token", jwtToken);
     localStorage.setItem("centralizador_user", JSON.stringify(user));
     localStorage.setItem("centralizador_clinic", JSON.stringify(clinic));
-
     setCurrentUser(user);
     setCurrentClinic(clinic);
-  };
-
-  const handleRoleSwitch = (newUser: ClinicUser, newClinic: Clinic) => {
-    setCurrentUser(newUser);
-    setCurrentClinic(newClinic);
-    localStorage.setItem("centralizador_user", JSON.stringify(newUser));
-    localStorage.setItem("centralizador_clinic", JSON.stringify(newClinic));
   };
 
   const handleLogout = () => {
@@ -134,47 +91,31 @@ export default function MediatorPage() {
     setSelectedPatient(null);
     setAuthorizedHistory(null);
     setShowPrintPreview(false);
-    setShowQuickAccess(false);
     setSearchQuery("");
     setSearchResults([]);
+    setAuditLogs([]);
     localStorage.removeItem("centralizador_token");
     localStorage.removeItem("centralizador_user");
     localStorage.removeItem("centralizador_clinic");
   };
 
-  const handleToggleDemo = () => {
-    const next = !isDemo;
-    setIsDemo(next);
-    setDemoMode(next);
-  };
-
-  // Perform search query via API or mock depending on active mode
   const performSearch = async (query: string) => {
     setAuthorizedHistory(null);
+    setSearchError("");
     if (!query.trim()) {
       setSearchResults([]);
+      setSelectedPatient(null);
       return;
     }
-
     try {
       const token = localStorage.getItem("centralizador_token") || "";
       const results = await searchPatientsApi(query, token);
       setSearchResults(results);
-      if (results.length > 0) {
-        setSelectedPatient(results[0]);
-      } else {
-        setSelectedPatient(null);
-      }
-    } catch {
-      // Fallback gracioso para dados mockados em caso de falha de conexão com a API
-      const lowerQuery = query.toLowerCase().trim();
-      const results = mockPatients.filter(
-        (p) =>
-          p.name.toLowerCase().includes(lowerQuery) ||
-          p.cpf.includes(lowerQuery.replace(/\D/g, ""))
-      );
-      setSearchResults(results);
       setSelectedPatient(results.length > 0 ? results[0] : null);
+    } catch (err: unknown) {
+      setSearchResults([]);
+      setSelectedPatient(null);
+      setSearchError(err instanceof Error ? err.message : "Erro ao buscar pacientes.");
     }
   };
 
@@ -188,95 +129,26 @@ export default function MediatorPage() {
     setSearchResults([]);
     setSelectedPatient(null);
     setAuthorizedHistory(null);
+    setSearchError("");
   };
 
-  const handleFillFromSandbox = (cpf: string) => {
-    setSearchQuery(cpf);
-    performSearch(cpf);
-  };
-
+  // Após um acesso permitido: guarda o histórico e recarrega a auditoria do paciente do back
   const handleAuthorizationSuccess = (history: AuthorizedHistory, newLog: AuditLog) => {
     setAuthorizedHistory(history);
     setAuditLogs((prev) => [newLog, ...prev]);
-  };
-
-  const handleQuickAccessPatient = (patient: Patient, token: string) => {
-    setSelectedPatient(patient);
-    const rawId = patient.id.replace(/^pat-/, "");
-
-    fetch(`http://localhost:8002/api/patients/${rawId}/timeline`)
-      .then((res) => res.json())
-      .then((timelineData) => {
-        let realExams = [...(patient.exams || [])];
-        if (timelineData && Array.isArray(timelineData.records) && timelineData.records.length > 0) {
-          realExams = timelineData.records.map((r: any) => ({
-            id: r.record_id || `rec-${Date.now()}`,
-            title: r.title || "Laudo Clínico",
-            date: r.exam_timestamp ? r.exam_timestamp.substring(0, 10) : new Date().toISOString().substring(0, 10),
-            provider: r.clinic_name || "Clínica Integrada",
-            result: r.conclusion || "Registro clínico consolidado via barramento Open Health.",
-            type: (r.title || "").toLowerCase().includes("ecg") || (r.title || "").toLowerCase().includes("cardio") ? "cardiology" : "lab",
-          }));
-        }
-
-        const patientWithRealExams: Patient = {
-          ...patient,
-          allergies: patient.allergies?.length ? patient.allergies : ["Dipirona Monoidratada", "Penicilina G", "Poeira/Ácaros"],
-          medications: patient.medications?.length ? patient.medications : [
-            "Losartana Potássica 50mg (1 comp. 12/12h — Prescrito por Clínica Vida Saudável)",
-            "Espironolactona 25mg (1 comp. manhã — Prescrito por Hospital São Lucas)",
-          ],
-          exams: realExams,
-        };
-
-        const hl7Str = generateHL7FHIRBundle(patientWithRealExams);
-        const timestamp = new Date().toISOString();
-
-        const newHistory: AuthorizedHistory = {
-          patient: patientWithRealExams,
-          method: "token",
-          requesterName: currentUser?.name || "Recepção / Triagem",
-          requesterRole: currentUser?.role || "Atendimento",
-          hl7Bundle: hl7Str,
-          timestamp,
-        };
-
-        const newLog: AuditLog = {
-          id: `log-${Date.now()}`,
-          clinicName: currentClinic?.name || "Clínica",
-          requesterEmail: currentUser?.email || "recepcao@vida.com.br",
-          patientName: patient.name,
-          authMethod: "token",
-          requestType: currentClinic?.type === "partner" ? "hl7_download" : "direct",
-          timestamp,
-          requesterRole: currentUser?.role,
-        };
-
-        handleAuthorizationSuccess(newHistory, newLog);
-      })
-      .catch(() => {
-        const hl7Str = generateHL7FHIRBundle(patient);
-        const timestamp = new Date().toISOString();
-        const newHistory: AuthorizedHistory = {
-          patient,
-          method: "token",
-          requesterName: currentUser?.name || "Recepção / Triagem",
-          requesterRole: currentUser?.role || "Atendimento",
-          hl7Bundle: hl7Str,
-          timestamp,
-        };
-        const newLog: AuditLog = {
-          id: `log-${Date.now()}`,
-          clinicName: currentClinic?.name || "Clínica",
-          requesterEmail: currentUser?.email || "recepcao@vida.com.br",
-          patientName: patient.name,
-          authMethod: "token",
-          requestType: currentClinic?.type === "partner" ? "hl7_download" : "direct",
-          timestamp,
-          requesterRole: currentUser?.role,
-        };
-        handleAuthorizationSuccess(newHistory, newLog);
-      });
+    if (currentClinic) {
+      const token = localStorage.getItem("centralizador_token") || "";
+      getPatientAuditApi(history.patient.id, history.patient.name, currentClinic.name, token)
+        .then((entries) => {
+          setAuditLogs((prev) => {
+            const others = prev.filter((l) => l.patientName !== history.patient.name);
+            return [...entries, ...others];
+          });
+        })
+        .catch(() => {
+          // Mantém o registro local da sessão se a auditoria não puder ser carregada agora.
+        });
+    }
   };
 
   const handleDownloadHL7 = () => {
@@ -293,70 +165,29 @@ export default function MediatorPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleInstantHL7Export = (patient: Patient) => {
-    const hl7Str = generateHL7FHIRBundle(patient);
-    const blob = new Blob([hl7Str], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `sandbox_hl7_fhir_${patient.name.toLowerCase().replace(/\s+/g, "_")}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    if (currentUser && currentClinic) {
-      const newLog: AuditLog = {
-        id: `log-${Date.now()}`,
-        clinicName: currentClinic.name,
-        requesterEmail: currentUser.email,
-        patientName: patient.name,
-        authMethod: "token",
-        requestType: "hl7_download",
-        timestamp: new Date().toISOString(),
-      };
-      setAuditLogs((prev) => [newLog, ...prev]);
-    }
-  };
-
   // If not authenticated, render Login View
   if (!currentUser || !currentClinic) {
-    return (
-      <LoginView
-        theme={theme}
-        setTheme={setTheme}
-        onLoginSuccess={handleLoginSuccess}
-      />
-    );
+    return <LoginView theme={theme} setTheme={setTheme} onLoginSuccess={handleLoginSuccess} />;
   }
 
   // Dashboard View
   return (
     <div className={theme === "dark" ? "dark bg-brand-dark-bg text-brand-dark-text min-h-screen transition-colors duration-200" : "bg-brand-bg text-brand-text min-h-screen transition-colors duration-200"}>
-      
       {/* Screen Layout - Hidden during printing */}
       <div className="no-print flex flex-col min-h-screen">
-        
         <DashboardHeader
           currentUser={currentUser}
           currentClinic={currentClinic}
           theme={theme}
           setTheme={setTheme}
-          isDemo={isDemo}
-          onToggleDemo={handleToggleDemo}
-          onRoleSwitch={handleRoleSwitch}
-          onOpenQuickAccess={() => setShowQuickAccess(true)}
           onLogout={handleLogout}
         />
 
         {/* Main Workspace Layout - Widescreen Layout (Expanded X Axis) */}
         <main className="flex-1 w-full max-w-[1720px] mx-auto p-4 sm:p-8 space-y-6">
-          
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            {/* Left Column: Search & Patient Database (Sandbox) - 25% on wide screens */}
+            {/* Left Column: Search */}
             <div className="lg:col-span-4 xl:col-span-3 space-y-6 min-w-0">
-              
               <PatientSearch
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
@@ -369,17 +200,13 @@ export default function MediatorPage() {
                 onClear={handleClearSearch}
                 onSearch={handleSearchSubmit}
               />
-
-              <SandboxPatients
-                mockPatients={mockPatients}
-                onFill={handleFillFromSandbox}
-                onInstantExport={handleInstantHL7Export}
-              />
+              {searchError && (
+                <p className="text-xs text-red-600 dark:text-red-400 px-1">{searchError}</p>
+              )}
             </div>
 
-            {/* Right/Middle Column: Request Panel & Data Display - 75% on wide screens */}
+            {/* Right/Middle Column: Request Panel & Data Display */}
             <div className="lg:col-span-8 xl:col-span-9 space-y-6 min-w-0">
-              
               <PatientRequestPanel
                 selectedPatient={selectedPatient}
                 currentClinic={currentClinic}
@@ -400,7 +227,7 @@ export default function MediatorPage() {
             </div>
           </div>
 
-          {/* Lower Full Width Section: Filtered Audit Log */}
+          {/* Lower Full Width Section: Audit Log */}
           <AuditLogsTable
             filteredAuditLogs={filteredAuditLogs}
             allAuditLogs={auditLogs}
@@ -418,14 +245,6 @@ export default function MediatorPage() {
         currentClinic={currentClinic}
         currentUser={currentUser}
       />
-
-      {/* Quick Access OTP Modal (Recepção) */}
-      {showQuickAccess && (
-        <QuickAccessModal
-          onClose={() => setShowQuickAccess(false)}
-          onSelectPatient={handleQuickAccessPatient}
-        />
-      )}
     </div>
   );
 }
