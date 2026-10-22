@@ -148,10 +148,19 @@ export async function requestPatientDataApi(
       type: "general" as const,
     }));
 
+  // Cadastro do paciente: telefone/e-mail vêm em telecom; convênio, tipo sanguíneo e alergias em extensões do POHINC.
+  const prAny = pr as unknown as { telecom?: Array<{ system: string; value: string }>; extension?: Array<{ url: string; valueString?: string }> } | undefined;
+  const telecom = prAny?.telecom || [];
+  const extValue = (url: string): string =>
+    (prAny?.extension || []).find((e) => e.url === url)?.valueString || "";
+  const allergiesRaw = extValue("http://pohinc.com.br/fhir/StructureDefinition/allergies");
   const full: Patient = {
     ...patient,
     name: pr?.name?.[0]?.text || patient.name,
-    birthDate: pr?.birthDate || patient.birthDate,
+    birthDate: pr?.birthDate && pr.birthDate !== "0001-01-01" ? pr.birthDate : patient.birthDate,
+    email: telecom.find((t) => t.system === "email")?.value || patient.email,
+    phone: telecom.find((t) => t.system === "phone")?.value || patient.phone,
+    allergies: allergiesRaw ? allergiesRaw.split(",").map((a) => a.trim()).filter(Boolean) : patient.allergies,
     exams,
   };
   const timestamp = new Date().toISOString();
