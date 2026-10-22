@@ -22,6 +22,47 @@ export interface LoginResponse {
 }
 
 /** Login do usuário da clínica. O back só aceita contas com tipo_usuario=clinica. */
+// Sessão da clínica: o access_token do Keycloak expira em pouco tempo, então renovamos com o refresh_token.
+const REFRESH_KEY = "centralizador_refresh_token";
+const EXPIRES_AT_KEY = "centralizador_token_expires_at";
+
+function rememberClinicSession(refreshToken: string | undefined, expiresIn: number | undefined) {
+  try {
+    if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+    if (expiresIn) localStorage.setItem(EXPIRES_AT_KEY, String(Date.now() + expiresIn * 1000));
+  } catch {
+    // Sem armazenamento local, a sessão segue até o token expirar.
+  }
+}
+
+/** Troca o refresh_token por um novo access_token e grava no mesmo lugar que o login. */
+export async function refreshClinicToken(): Promise<boolean> {
+  const refreshToken = localStorage.getItem(REFRESH_KEY);
+  if (!refreshToken) return false;
+  const res = await fetch(`${getApiBaseUrl()}/api/clinic/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  if (!res.ok) return false;
+  const data = await res.json();
+  localStorage.setItem("centralizador_token", data.access_token);
+  rememberClinicSession(data.refresh_token, data.expires_in);
+  return true;
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Mantém a sessão viva: renova o token quando faltar menos de 1 minuto. */
+export function keepClinicSessionAlive() {
+  if (refreshTimer) return;
+  refreshTimer = setInterval(async () => {
+    const expiresAt = Number(localStorage.getItem(EXPIRES_AT_KEY) || 0);
+    if (!expiresAt || expiresAt - Date.now() > 60_000) return;
+    await refreshClinicToken().catch(() => false);
+  }, 30_000);
+}
+
 export async function loginClinic(email: string, password: string): Promise<LoginResponse> {
   const res = await fetch(`${getApiBaseUrl()}/api/clinic/login`, {
     method: "POST",
@@ -32,6 +73,7 @@ export async function loginClinic(email: string, password: string): Promise<Logi
     throw new Error(await readError(res, "Não foi possível entrar. Verifique e-mail e senha."));
   }
   const data = await res.json();
+  rememberClinicSession(data.refresh_token, data.expires_in);
   return {
     token: data.access_token,
     user: {

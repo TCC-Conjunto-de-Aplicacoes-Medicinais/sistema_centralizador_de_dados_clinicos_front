@@ -1,5 +1,6 @@
 "use client";
 
+import { keepClinicSessionAlive } from "../services/api";
 import { useState, useEffect } from "react";
 import type { Patient, Clinic, ClinicUser, AuditLog, AuthorizedHistory } from "../types/clinical";
 
@@ -49,6 +50,7 @@ export default function MediatorPage() {
     const savedUser = localStorage.getItem("centralizador_user");
     const savedClinic = localStorage.getItem("centralizador_clinic");
     const savedToken = localStorage.getItem("centralizador_token");
+    keepClinicSessionAlive();
     if (savedUser && savedClinic && savedToken) {
       setTimeout(() => {
         try {
@@ -95,6 +97,8 @@ export default function MediatorPage() {
     setSearchResults([]);
     setAuditLogs([]);
     localStorage.removeItem("centralizador_token");
+    localStorage.removeItem("centralizador_refresh_token");
+    localStorage.removeItem("centralizador_token_expires_at");
     localStorage.removeItem("centralizador_user");
     localStorage.removeItem("centralizador_clinic");
   };
