@@ -25,6 +25,7 @@ export default function PatientRequestPanel({
   const [requestError, setRequestError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [accessCode, setAccessCode] = useState("");
+  const [justification, setJustification] = useState("");
 
   if (!selectedPatient) {
     return (
@@ -60,6 +61,31 @@ export default function PatientRequestPanel({
       onAuthorizationSuccess(history, log);
     } catch (err: unknown) {
       setRequestError(err instanceof Error ? err.message : "Erro ao solicitar o histórico do paciente.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBreakGlass = async () => {
+    setRequestError("");
+    if (justification.trim().length < 10) {
+      setRequestError("Informe a justificativa (mínimo de 10 caracteres).");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem("centralizador_token") || "";
+      const { history, log } = await requestPatientDataApi(
+        selectedPatient,
+        token,
+        { name: currentUser.name, email: currentUser.email, role: currentUser.role },
+        currentClinic,
+        { justification: justification.trim() }
+      );
+      setJustification("");
+      onAuthorizationSuccess(history, log);
+    } catch (err: unknown) {
+      setRequestError(err instanceof Error ? err.message : "Erro ao acessar o histórico.");
     } finally {
       setIsSubmitting(false);
     }
@@ -142,6 +168,33 @@ export default function PatientRequestPanel({
             <p>
               O histórico só é liberado se o paciente tiver concedido consentimento no aplicativo. Toda tentativa, permitida ou negada, fica registrada na auditoria.
             </p>
+          </div>
+
+          <div className="space-y-2 p-4 rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5">
+            <p className="text-xs font-semibold text-brand-text dark:text-brand-dark-text">
+              Acesso de demonstração (break-the-glass)
+            </p>
+            <p className="text-[11px] text-brand-text/60 dark:text-brand-dark-text/60">
+              Sem consentimento. Só funciona para pacientes de demonstração. A justificativa fica registrada na auditoria.
+            </p>
+            <textarea
+              value={justification}
+              onChange={(e) => setJustification(e.target.value)}
+              rows={2}
+              maxLength={500}
+              placeholder="Justificativa (mínimo de 10 caracteres)"
+              className="w-full rounded-lg border border-brand-border dark:border-brand-dark-border bg-brand-bg dark:bg-brand-dark-bg px-3 py-2 text-xs text-brand-text dark:text-brand-dark-text"
+            />
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleBreakGlass}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-amber-800 dark:text-amber-300 border border-amber-500/60 hover:bg-amber-500/10 transition cursor-pointer disabled:opacity-60"
+              >
+                Acessar como demonstração
+              </button>
+            </div>
           </div>
 
           <div className="flex justify-end pt-2">

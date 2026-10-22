@@ -112,13 +112,23 @@ export async function requestPatientDataApi(
   patient: Patient,
   token: string,
   requester: { name: string; email: string; role: string },
-  clinic: Clinic
+  clinic: Clinic,
+  breakGlass?: { justification: string }
 ): Promise<{ history: AuthorizedHistory; log: AuditLog }> {
-  const res = await fetch(`${getApiBaseUrl()}/api/patients/${encodeURIComponent(patient.id)}/fhir-bundle`, {
-    headers: authHeaders(token),
-  });
+  const base = `${getApiBaseUrl()}/api/patients/${encodeURIComponent(patient.id)}`;
+  const res = breakGlass
+    ? await fetch(`${base}/break-glass`, {
+        method: "POST",
+        headers: { ...authHeaders(token), "Content-Type": "application/json" },
+        body: JSON.stringify({ justificativa: breakGlass.justification }),
+      })
+    : await fetch(`${base}/fhir-bundle`, { headers: authHeaders(token) });
   if (res.status === 403) {
-    throw new Error("O paciente não autorizou o compartilhamento do histórico (consentimento ausente ou revogado).");
+    throw new Error(
+      breakGlass
+        ? "Acesso sem consentimento só é permitido para pacientes de demonstração."
+        : "O paciente não autorizou o compartilhamento do histórico (consentimento ausente ou revogado)."
+    );
   }
   if (!res.ok) {
     throw new Error(await readError(res, "Não foi possível obter o histórico do paciente."));
@@ -149,7 +159,7 @@ export async function requestPatientDataApi(
   return {
     history: {
       patient: full,
-      method: "consent",
+      method: breakGlass ? "break_the_glass" : "consent",
       requesterName: requester.name,
       requesterRole: requester.role,
       hl7Bundle: JSON.stringify(bundle, null, 2),
@@ -160,7 +170,7 @@ export async function requestPatientDataApi(
       clinicName: clinic.name,
       requesterEmail: requester.email,
       patientName: full.name,
-      authMethod: "consent",
+      authMethod: breakGlass ? "break_the_glass" : "consent",
       requestType: clinic.type === "partner" ? "hl7_download" : "direct",
       timestamp,
       requesterRole: requester.role,
