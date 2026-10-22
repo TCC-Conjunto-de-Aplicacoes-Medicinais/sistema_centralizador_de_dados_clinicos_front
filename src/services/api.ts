@@ -88,6 +88,23 @@ interface FhirResource {
 }
 
 /**
+ * Troca o código de 6 dígitos que o paciente gerou no app por acesso temporário ao histórico.
+ * Devolve até quando o acesso vale (ISO). O back registra a tentativa na auditoria.
+ */
+export async function redeemAccessCodeApi(cpf: string, code: string, token: string): Promise<string> {
+  const res = await fetch(`${getApiBaseUrl()}/api/access-codes/redeem`, {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ cpf, code }),
+  });
+  if (!res.ok) {
+    throw new Error(await readError(res, "Código inválido, expirado ou já utilizado."));
+  }
+  const data: { access_until: string } = await res.json();
+  return data.access_until;
+}
+
+/**
  * Solicita o histórico do paciente (bundle FHIR R4). Só sai com consentimento vigente do paciente;
  * o back registra a tentativa, permitida ou negada, na auditoria.
  */

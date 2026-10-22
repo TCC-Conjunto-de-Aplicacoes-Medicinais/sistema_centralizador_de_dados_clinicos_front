@@ -3,7 +3,7 @@
 import { formatBirthDate } from "../services/format";
 import { useState } from "react";
 import type { AuditLog, AuthorizedHistory, Clinic, ClinicUser, Patient } from "../types/clinical";
-import { requestPatientDataApi } from "../services/api";
+import { redeemAccessCodeApi, requestPatientDataApi } from "../services/api";
 
 interface PatientRequestPanelProps {
   selectedPatient: Patient | null;
@@ -24,6 +24,7 @@ export default function PatientRequestPanel({
 }: PatientRequestPanelProps) {
   const [requestError, setRequestError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [accessCode, setAccessCode] = useState("");
 
   if (!selectedPatient) {
     return (
@@ -44,6 +45,12 @@ export default function PatientRequestPanel({
     setIsSubmitting(true);
     try {
       const token = localStorage.getItem("centralizador_token") || "";
+      const code = accessCode.trim();
+      if (code) {
+        // Código do paciente libera o acesso por prazo curto; sem código, vale só o consentimento permanente.
+        await redeemAccessCodeApi(selectedPatient.cpf.replace(/\D/g, ""), code, token);
+        setAccessCode("");
+      }
       const { history, log } = await requestPatientDataApi(
         selectedPatient,
         token,
@@ -109,6 +116,26 @@ export default function PatientRequestPanel({
               <span>{requestError}</span>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <label htmlFor="access-code" className="text-xs font-semibold text-brand-text dark:text-brand-dark-text">
+              Código do paciente (opcional)
+            </label>
+            <input
+              id="access-code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={accessCode}
+              onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, ""))}
+              placeholder="6 dígitos gerados no app"
+              className="w-full rounded-lg border border-brand-border dark:border-brand-dark-border bg-brand-bg dark:bg-brand-dark-bg px-3 py-2 text-sm tracking-[0.3em] text-brand-text dark:text-brand-dark-text"
+            />
+            <p className="text-[11px] text-brand-text/60 dark:text-brand-dark-text/60">
+              O código vale por 10 minutos e só pode ser usado uma vez.
+            </p>
+          </div>
 
           <div className="p-4 bg-brand-bg/50 dark:bg-brand-dark-bg/50 rounded-lg border border-brand-border dark:border-brand-dark-border text-xs text-brand-text/70 dark:text-brand-dark-text/70 space-y-1">
             <p className="font-semibold text-brand-text dark:text-brand-dark-text">Autorização por consentimento</p>
