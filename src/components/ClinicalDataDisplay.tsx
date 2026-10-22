@@ -61,7 +61,7 @@ export default function ClinicalDataDisplay({
               </span>
             </div>
             <p className="text-xs text-brand-text/60 dark:text-brand-dark-text/60 mt-0.5">
-              CPF: <strong>{patient.cpf}</strong> • Nasc: {patient.birthDate} • Custódia soberana validada via chave assimétrica móvel
+              CPF: <strong>{patient.cpf}</strong> • Nasc: {patient.birthDate}{patient.insurance ? <> • Convênio: {patient.insurance}</> : null}{patient.bloodType ? <> • Tipo sanguíneo: {patient.bloodType}</> : null} • Custódia soberana validada via chave assimétrica móvel
             </p>
           </div>
         </div>

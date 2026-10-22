@@ -160,6 +160,8 @@ export async function requestPatientDataApi(
     birthDate: pr?.birthDate && pr.birthDate !== "0001-01-01" ? pr.birthDate : patient.birthDate,
     email: telecom.find((t) => t.system === "email")?.value || patient.email,
     phone: telecom.find((t) => t.system === "phone")?.value || patient.phone,
+    insurance: extValue("http://pohinc.com.br/fhir/StructureDefinition/insurance") || patient.insurance,
+    bloodType: extValue("http://pohinc.com.br/fhir/StructureDefinition/blood-type") || patient.bloodType,
     allergies: allergiesRaw ? allergiesRaw.split(",").map((a) => a.trim()).filter(Boolean) : patient.allergies,
     exams,
   };

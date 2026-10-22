@@ -67,6 +67,8 @@ export interface Patient {
   phone: string;
   otpToken: string;
   allergies: string[];
+  insurance?: string;
+  bloodType?: string;
   medications: string[];
   exams: Exam[];
   ecgRecords?: ECGRecord[];
